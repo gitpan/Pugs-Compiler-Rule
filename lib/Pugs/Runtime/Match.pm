@@ -4,6 +4,7 @@ package Pugs::Runtime::Match;
 use 5.006;
 use strict;
 use warnings;
+use Data::Dumper;
 
 use overload (
     '@{}'    => \&array,
@@ -21,14 +22,17 @@ sub new {
     bless $self, $class;
 }
 
+# XXX - this sub should set .from and .to in match nodes!
+#     - it should be called only once, whenever there is an access
+#       to: .from(); .to(); methods that call ._box_submatch() 
 sub _str {
     my $match = $_[0];
     #print "STR: ", ref( $match ), " ", Dumper( $match ), "\n";
     return join( '', map { match::str( $_ ) } @$match )
         if ref( $match ) eq 'ARRAY';
-    return match::str( $match->{match} ) 
+    return _str( $match->{match} ) 
         if ref( $match ) eq 'HASH' && exists $match->{match};
-    return join( '', map { match::str( $_ ) } values %$match )
+    return join( '', map { _str( $_ ) } values %$match )
         if ref( $match ) eq 'HASH';
     return $match;
 }
@@ -71,34 +75,73 @@ sub bool {
     ${$_[0]}->{bool};
 }
 
+sub _get_captures {
+    my @a;
+    # special case: the whole match is a single capture
+    return ${$_[0]} if exists ${$_[0]}->{label};
+    if ( ref( ${$_[0]}->{match} ) eq 'ARRAY' ) {
+        @a = @{${$_[0]}->{match}};
+    }
+    else {
+        push @a, ${$_[0]}->{match};        
+    }
+    while ( exists $a[-1]{match} && ref( $a[-1]{match} ) eq 'ARRAY' ) {
+        my $t = pop @a;
+        push @a, @{$t->{match}};
+    }
+    return @a;
+}
+
 # as hash
 sub hash {
-    return {map {
-        my $m = $_;
-        exists $m->{label} 
-        ? ( $m->{label} eq '' 
-            ? () 
-            : $m->{label} => _box_submatch( $_[0], $m )
-          )
-        : ()
-    } @{${$_[0]}->{match}}};
+    my @a = _get_captures( $_[0] );
+    my %r;
+    for my $m ( @a ) {
+        next unless exists $m->{label};
+        if ( $m->{label} eq '*quantifier*' ) {
+            my %h = %{ _box_submatch( $_[0], $m ) };
+            while ( my ($k, $v) = each %h ) {
+                my @v = ref($v) eq 'ARRAY' ? @$v : 
+                        defined $v ? $v :
+                        ();
+                if ( ref( $r{$k} ) ne 'ARRAY' ) {
+                    $r{$k} = [ $r{$k} ] if defined $r{$k};
+                }
+                push @{$r{$k}}, @v;
+            }
+            next;
+        }
+        next if $m->{label} eq '';
+        if ( exists $r{ $m->{label} } ) {
+            if ( ref( $r{$m->{label}} ) eq 'ARRAY' ) {
+                push @{$r{$m->{label}}}, _box_submatch( $_[0], $m );                
+            }
+            else {
+                $r{$m->{label}} = [ $r{$m->{label}}, _box_submatch( $_[0], $m ) ];
+            }
+        }
+        else {
+            $r{ $m->{label} } = _box_submatch( $_[0], $m );
+        }
+    }
+    return \%r;
 }
 
 # as array
 sub array {
-    #print 'array from: ', do{use Data::Dumper; Dumper($_[0])};
-    # special case: the whole match is a single capture
-    if ( exists ${$_[0]}->{label} && ${$_[0]}->{label} eq '' ) {
-        my $m = _box_submatch( $_[0], ${$_[0]} );
-        return [ $m ];
+    my @a = _get_captures( $_[0] );
+    my @r;
+    for my $m ( @a ) {
+        next unless exists $m->{label};
+        if ( $m->{label} eq '*quantifier*' ) {
+            my @m = @{ _box_submatch( $_[0], $m ) };
+            push @r, \@m if @m;
+            next;
+        }
+        next if $m->{label} ne '';
+        push @r, _box_submatch( $_[0], $m );                
     }
-    return [map {
-        my $m = $_;
-        #print 'array element: ', do{use Data::Dumper; Dumper($m)};
-        exists $m->{label} && $m->{label} eq '' 
-        ? _box_submatch( $_[0], $m )
-        : ()
-    } @{${$_[0]}->{match}}];
+    return \@r;
 }
 
 1;

@@ -12,128 +12,150 @@ This is the Perl 6 Grammar used to Parse and generate the
 Abstract Syntax Tree (AST) for Rules.
 
 =cut
-
-# XXX - clean up unused rules!
-
-# rule xxx :P5 {foo}
-# XXX - rewrite this!
-rule perl5_regex { 
-    [   
-        \.   |   \|   |   \*   |   \+   |
-        \(   |   \)   |   \[   |   \]   |
-        \?   |   \:   |   \s   |   \w   | 
-        \_   |   \\   |   \^   |   \$   |
-        \n   |   \#   |   \-   |   \<   |
-        \>   |   \!   |
-        alnum
-    ]* 
-        { return { perl5_regex => $() ,} }
-}
-
-rule perl5_rule_decl {
-    rule <p6ws> <ident> <p6ws>? \: P5 <p6ws> \{ <perl5_regex> \}
-        { return { perl5_rule_decl => $() ,} }
-}
-push @grammar1::statements, \&perl5_rule_decl;
  
-rule word     :P5 {^([_[:alnum:]]+)}
-rule any      :P5 {^(.)}
-rule escaped_char  
-              :P5 {^\\(.)}
-rule newline  :P5 {^(\n)}
-rule ws       :P5 {^(\s+)}
 rule p6ws     :P5 {^((?:\s|\#(?-s:.)*)+)}
 
-# XXX - set non-capture flag?
-# XXX - incomplete - needs a return block
-rule non_capturing_subrule
-              :P5 {^\<\?(.*?)\>}
-push @rule_terms, \&non_capturing_subrule;
+rule variable :P5 {^([$%@](?:(?:\:\:)?[_[:alnum:]]+)+)}
 
-# XXX - incomplete - needs a return block
-rule negated_subrule
-              :P5 {^\<\!(.*?)\>}
-push @rule_terms, \&negated_subrule;
+rule ident    :P5 {^((?:(?:\:\:)?[_[:alnum:]]+)+)}
 
-# XXX - incomplete - needs a return block
-rule subrule  :P5 {^\<(.*?)\>}
-push @rule_terms, \&subrule;
+rule num_variable :P5 {^(?:\$[[:digit:]]+)}
 
-rule const_word {
-    <word>
-        { return { constant => $() ,} }
+rule escaped_char :P5 {^\\(.)}
+
+# terms
+
+    rule dot {
+        \.    
+            
+        { return { 'dot' => 1 ,} }
+    }
+    unshift @rule_terms, 'dot';
+    
+    # \w not implemented in lrep...
+    rule _word_char    :P5 {^([[:alnum:]])}
+    rule word {
+        <_word_char>    
+            
+        { return { 'constant' => $_[0]{_word_char}() ,} }
+    }
+    unshift @rule_terms, 'word';
+    
+    rule special_char {
+        <escaped_char>
+
+        { return { special_char => $_[0]{escaped_char}(), } } 
+    }
+    unshift @rule_terms, 'special_char';
+    
+    rule non_capturing_group {
+        \[ <rule> \] 
+         
+        { return $_[0]{rule}() }
+    }
+    push @rule_terms, 'non_capturing_group';
+    
+    rule closure_rule {
+        <code> 
+            
+        { return { closure => $_[0]{code}() ,} }
+    }
+    unshift @rule_terms, 'closure_rule';
+    
+    rule variable_rule {
+        <variable> 
+            
+        { return { variable => $() ,} }
+    }
+    unshift @rule_terms, 'variable_rule';
+    
+    # $0 $1
+    rule match_variable {
+        <num_variable>    
+            
+        { return { match_variable => $_[0]{num_variable}() ,} }
+    }
+    unshift @rule_terms, 'match_variable';
+    
+    rule named_capture {
+        \$ \< <ident> \> <?p6ws>? \:\= <?p6ws>? \( <rule> \) 
+        
+        { return { named_capture => {
+                ident => $_[0]{ident}(),
+                rule  => $_[0]{rule}(),
+            }, } 
+        }
+    }
+    unshift @rule_terms, 'named_capture';
+        
+    rule capturing_group {
+        \( <rule> \)
+            
+        { return { capturing_group => $_[0]{rule}() ,} }
+    }
+    unshift @rule_terms, 'capturing_group';
+    
+    rule colon1 {
+        \:
+            
+        { return { colon => 1 ,} }
+    }
+    push @rule_terms, 'colon1';
+    
+# /terms
+
+
+rule quantifier {
+    <?p6ws>?
+    $<term> := (<@Pugs::Grammar::Rule::rule_terms>)
+    <?p6ws>?
+    $<quant> := (
+        [ 
+            [ \?\? ] |
+            [ \*\? ] |
+            [ \+\? ] |
+            \?       |
+            \*       |
+            \+
+        ]?
+    )
+    <?p6ws>?
+    
+    { return {  
+            term =>  $_[0]{term}(),
+            quant => $_[0]{quant}(),
+        } 
+    }
 }
-unshift @rule_terms, \&const_word;
 
-rule const_escaped_char {
-    <escaped_char> 
-        { return { constant => $() ,} }
+rule concat {
+    $<q1> := (<quantifier>) 
+    [
+        $<q2> := (<concat>) 
+        
+        { return { concat => [ 
+                { quant => $_[0]{q1}() ,}, 
+                $_[0]{q2}(),
+            ] ,} 
+        } 
+    
+    ]?
+    
+    { return { quant => $_[0]{q1}() ,} } 
 }
-unshift @rule_terms, \&const_escaped_char;
-
-rule dot {
-    (\.) 
-        { return { dot => $() ,} }
-}
-unshift @rule_terms, \&dot;
 
 rule rule {
-    [ <?alt> | <?quantifier> ]*
-}
+    $<q1> := (<concat>) 
+    [
+        \| $<q2> := (<rule>) 
 
-rule non_capturing_group {
-     \[ <?rule> \] 
+        { return { alt => [ 
+                $_[0]{q1}(), 
+                $_[0]{q2}(),
+            ] ,} 
+        }
+    
+    ]?
+            
+    { return $_[0]{q1}() } 
 }
-push @rule_terms, \&non_capturing_group;
-
-rule closure_rule {
-    <code>
-        { return { closure => $() ,} }
-}
-unshift @rule_terms, \&closure_rule;
-
-rule variable_rule {
-    <variable> 
-        { return { variable => $() ,} }
-}
-unshift @rule_terms, \&variable_rule;
-
-rule runtime_alternation {
-    \< <variable> \>
-        { return { runtime_alternation => $() ,} }
-}
-unshift @rule_terms, \&runtime_alternation;
-
-rule named_capture {
-    \$ <ident> <?p6ws>? \:\= <?p6ws>? \( <rule> \) 
-        { return { named_capture => $() ,} }
-}
-unshift @rule_terms, \&named_capture;
-
-rule immediate_statement_rule {
-    <?p6ws>? <@grammar1::statements> <?p6ws>?
-}
-
-rule grammar {
-    <immediate_statement_exec>*
-}
-
-rule rule_decl {
-    rule <p6ws> <ident> <p6ws>? \{ <rule> \}
-        { return { rule_decl => $() ,} }
-}
-push @grammar1::statements, \&rule_decl;
-        
-rule grammar_name {
-    grammar <p6ws> <ident> <p6ws>? \;
-        { return { grammar_name => $() ,} }
-}
-push @statements, \&grammar_name;
-
-rule _push {
-    $op := (push|unshift) <p6ws> <variable> <p6ws>? \, <p6ws>?
-    $code := (.*?) <p6ws>? \;
-        { return { _push => $() ,} }
-}
-push @statements, \&_push;
-

@@ -1,278 +1,74 @@
-# pX/Common/p6rule.pl - fglock
+# Pugs::Grammar::Rule - fglock
 #
-# experimental implementation of p6-regex parser
+# the 'Rule' grammar - 'rule' is the main rule
 #
 
 package Pugs::Grammar::Rule;
+use strict;
+use warnings;
+no  warnings qw( once redefine );
 
 use Text::Balanced; 
 use Data::Dumper;
 use Pugs::Runtime::Rule;
-
-use strict;
-use warnings;
-no warnings qw( once redefine );
+#use Pugs::Runtime::Grammar; -- MOP 
 
 use vars qw( @rule_terms );
-
-# XXX - move these to prelude using rx:perl
-
-sub subrule {
-    my ( $code, $tail ) = $_[0] =~ /^\<(.*?)\>(.*)$/s;
-    return unless defined $code;
-    #print "parsing subrule $code\n";
-    return { 
-        bool  => 1,
-        match => { code => $code },
-        tail  => $tail,
-        capture => [ { subrule => $code } ],
-    }
-}
-
-# XXX - set non-capture flag
-sub non_capturing_subrule {
-    my ( $code, $tail ) = $_[0] =~ /^\<\?(.*?)\>(.*)$/s;
-    return unless defined $code;
-    # print "non_capturing_subrule $code - $1\n";
-    return { 
-        bool  => 1,
-        match => { code => $code },
-        tail  => $tail,
-        capture => [ { non_capturing_subrule => $code } ],
-    }
-}
-
-sub negated_subrule {
-    my ( $code, $tail ) = $_[0] =~ /^\<\!(.*?)\>(.*)$/s;
-    return unless defined $code;
-    # print "negated_subrule $code - $1\n";
-    return { 
-        bool  => 1,
-        match => { code => $code },
-        tail  => $tail,
-        capture => [ { negated_subrule => $code } ],
-    }
-}
-
-*capturing_group = 
-    ruleop::concat(
-        ruleop::constant( '(' ),
-        ruleop::capture( 'capturing_group',
-            \&rule,
-        ),
-        ruleop::constant( ')' )
-    );
-
-@rule_terms = (
-    \&capturing_group,
-
-    # <'literal'> literal \*
-    ruleop::concat(    
-        ruleop::constant( "<\'" ),
-        ruleop::capture( 'constant',
-            ruleop::non_greedy_star( \&any ),
-        ),
-        ruleop::constant( "\'>" ),
-    ),
-
-    \&negated_subrule,
-    \&non_capturing_subrule,
-    \&subrule,
-);
-
-# <ws>* [ <closure> | <subrule> | ... ]
-*term = 
-    ruleop::concat(
-        \&ws_star,
-        ruleop::alternation( \@rule_terms ),
-        \&ws_star,
-    );
-
-# XXX - allow whitespace everywhere
-
-# [ <term>[\*|\+] | <term> 
-# note: <term>\* creates a term named 'star'
-*quantifier = 
-    ruleop::alternation( [
-        ruleop::capture( 'star', 
-            ruleop::concat(
-                ruleop::capture( 'term', \&term ),
-                ruleop::capture( 'literal',
-                    ruleop::alternation( [
-                        ruleop::constant( '??' ),
-                        ruleop::constant( '?' ),
-                        ruleop::constant( '*?' ),
-                        ruleop::constant( '+?' ),
-                        ruleop::constant( '*' ),
-                        ruleop::constant( '+' ),
-                    ] ),
-                ),
-                \&ws_star,
-            ),
-        ),
-        \&term,
-    ] );
-
-*alt = 
-    ruleop::capture( 'alt', 
-        ruleop::concat(
-            ruleop::capture( 'term', \&quantifier ),
-            ruleop::greedy_plus(
-                ruleop::concat(
-                    ruleop::constant( '|' ),
-                    ruleop::capture( 'term', \&quantifier ),
-                ),
-            ),
-        ),
-    ),                
-;
-
-#--------
-
-
-sub any { 
-    return unless $_[0];
-    return { 
-        bool  => 1,
-        match => { '.'=> substr($_[0],0,1) },
-        tail  => substr($_[0],1),
-        ( $_[2]->{capture} ? ( capture => [ substr($_[0],0,1) ] ) : () ),
-    };
-}
-sub ws {
-    return unless $_[0];
-    return { 
-        bool  => 1,
-        match => { 'ws'=> $1 },
-        tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
-    }
-        if $_[0] =~ /^(\s+)(.*)$/s;
-    return;
-};
-sub p6ws {
-    return unless $_[0];
-    return { 
-        bool  => 1,
-        match => { 'p6ws'=> $1 },
-        tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
-    }
-        if $_[0] =~ /^((?:\s|\#(?-s:.)*)+)(.*)$/s;
-    return;
-};
-sub newline {
-    return unless $_[0];
-    return { 
-        bool  => 1,
-        match => { 'newline'=> $1 },
-        tail  => substr($_[0],1),
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
-    }
-        if $_[0] =~ /^(\n)/s;
-    return;
-};
-sub escaped_char {
-    return unless $_[0];
-    return { 
-        bool  => 1,
-        match => { 'escaped_char'=> $1 },
-        tail  => substr($_[0],2),
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
-    }
-        if $_[0] =~ /^\\(.)/s;
-    return;
-};
-
+use base 'Pugs::Grammar::Base';
+use Pugs::Grammar::Rule::Rule;   # compiled with lrep
 
 sub code {
-    return unless $_[0];
+    my $grammar = shift;
+    return $grammar->no_match unless $_[0];
     my ($extracted,$remainder) = Text::Balanced::extract_codeblock( $_[0] );
-    return { 
+    return Pugs::Runtime::Match->new( { 
         bool  => ( $extracted ne '' ),
         match => $extracted,
         tail  => $remainder,
-        ( $_[2]->{capture} ? ( capture => [ $extracted ] ) : () ),
-    };
+    } );
 }
 
 sub literal {
-    return unless $_[0];
+    my $grammar = shift;
+    return $grammar->no_match unless $_[0];
     my ($extracted,$remainder) = Text::Balanced::extract_delimited( $_[0], "'" );
-    $extracted = substr( $extracted, 1, -1 );
-    return { 
+    $extracted = substr( $extracted, 1, -1 ) if length($extracted) > 1;
+    return Pugs::Runtime::Match->new( { 
         bool  => ( $extracted ne '' ),
         match => $extracted,
         tail  => $remainder,
-        ( $_[2]->{capture} ? ( capture => [ { literal => $extracted } ] ) : () ),
-    };
+    } );
 }
 
-sub ws_star {
-    #return unless $_[0];
-    return { 
-        bool  => 1,
-        match => { 'ws*'=> $1 },
-        tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
-    }
-        if $_[0] =~ /^(\s*)(.*)$/s;
-    return;
-};
-sub p6ws_star {
-    #return unless $_[0];
-    return { 
-        bool  => 1,
-        match => { 'p6ws*'=> $1 },
-        tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
-    }
-        if $_[0] =~ /^((?:\s|\#(?-s:.)*)*)(.*)$/s;
-    return;
-};
+sub metasyntax {
+    my $grammar = shift;
+    return $grammar->no_match unless $_[0];
+    my ($extracted,$remainder) = Text::Balanced::extract_bracketed( $_[0], "<..>" );
+    $extracted = substr( $extracted, 1, -1 ) if length($extracted) > 1;
+    return Pugs::Runtime::Match->new( { 
+        bool  => ( $extracted ne '' ),
+        match => $extracted,
+        tail  => $remainder,
+        capture => { metasyntax => $extracted },
+    } );
+}
+BEGIN {
+    unshift @rule_terms, 'metasyntax';
+}
 
-sub variable {
-    #return unless $_[0];
-    return { 
-        bool  => 1,
-        match => { 'ws*'=> $1 },
-        tail  => $2,
-        ( $_[2]->{capture} ? ( capture => $1 ) : () ),
+BEGIN {
+    # XXX - currying should be made automatically by <@xxx> runtime
+    # curry @rule_terms with Grammar
+    @rule_terms = map { 
+        my $method = $_;
+        sub{ 
+            # warn "Trying $method\n";
+            my $match = Pugs::Grammar::Rule->$method(@_);
+            #warn "Match $method ".Dumper($match) if $match->{bool};
+            return $match;
+        }
     }
-        if $_[0] =~ / ^  
-            (   [ $ % @ % ]
-                (?: 
-                    (?:\:\:)? 
-                    [_[:alnum:]]+ 
-                )+
-            )  
-            (.*) $ /xs;
-    return;
-};
-
-sub ident {
-    #return unless $_[0];
-    return { 
-        bool  => 1,
-        match => { 'ident'=> $1 },
-        tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ { ident => $1 } ] ) : () ),
-    }
-        if $_[0] =~ / ^  
-            ( 
-                (?: 
-                    (?:\:\:)? 
-                    [_[:alnum:]]+ 
-                )+
-            )  
-            (.*) $ /xs;
-    return;
-};
-
-# delay execution
-{
-    local $SIG{__WARN__} = sub {};
-    require Pugs::Grammar::Rule::Rule;
+    @rule_terms;
 }
 
 1;

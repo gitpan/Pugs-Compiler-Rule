@@ -1,42 +1,81 @@
-TODO for Pugs::Grammar::Rule and Pugs::Emitter::Rule::Perl5
+TODO for Pugs::Compiler::Rule (PCR)
 
-What's missing for releasing:
+Priorities:
 
-- documentation
+- make PadWalker optional, as most distros don't hold PW 1.0
+
+- move files to /perl5; fix paths in Makefile.PL
+
+- Match: .from and .to not implemented in subrules
+
+- '%var := xxx'; '@var := xxx'; %<var> := ; @<var> :=
+
+- rule parameters 
+
+- :P5 rules
+
+- add placeholder 'not implemented' messages in the right places
+
+- make Emitter::Rule::Perl5 subclassable - such that closures can be 
+  parsed/compiled by a custom parser
+- make the 'return' block functionally detectable (instead of regex)
+
+Bugs:
+
+- $variable should look into the user pad
+
+Tests:
+
+- backtracking control ':' 
+
+- <'... <?... <!...
+
+- are subrules backtracking?
+
+- more tests (port from lrep)
+  
+Related projects:
+
+- implement (optional?) PCR in pugs
+
+- use PCR in lrep
+  - merge the 'dual engine' in PCR (used by the lrep-compiled grammar)
+
+- implement Pugs::Compiler::PILN ?
+  - not a priority - p5 could load ready-made YAML from Pugs
+
+Other:
+
+- see 'not implemented' messages in Pugs::Emitter::Rule::Perl5
+
+- migrate Pugs::Grammar::Rule::Rule compilation to PCR
+
+- cleanup the engine: it is both returning the match, and building the match tree.
+  There is no need to return the match.
+
+- closures should be called on the Match object
+
+- add a hook for compiling closures (such as pugs or a source filter)
+  - cleanup any remaining source filtering
+
+- rule documentation (shorter than S05)
 - examples of use
-- more Match.pm methods (like 'pos')
-- rule switches (none, currently)
-- incomplete rule syntax (see README)
-- test user-defined subrules (there may be namespace problems)
 
-Other TODO:
-
-- .from and .to not implemented in subrules
+- incomplete rule syntax (see Pugs::Compiler::Rule pod); 
+- more escaped chars
 
 - Switches - none so far - all rules have :p set (only match at start of 
   text) (see Pugs::Compiler::Rule workaround)
 
-- there are 2 engines - the old lrep engine, which drives the rule parser,
-  and the new engine, which is the user-side parser. The 2 steps should 
-  use only the new engine.
+- 'Pugs::Grammar::Rule' - old p5 code... -- 'use' in P:G:R
 
-- simple closures don't get the Match argument
+- optimization: inline code in the Engine; 
+- "pre-generate" engine output?
 
-- remove 'grammar1' namespace everywhere
-- 'Pugs::Grammar::Rule::Lib' - old p5 code... -- 'use' in P:G:R
+- cached precompiled variable rules, per S05
 
-- namespace problems:
-  - rules are compiled in the Pugs::Grammar::Rule namespace
-  - user-defined rules are local to the current package
-    and will need to be called with full-name (until fixed)
+Implementation notes:
 
-- more tests (port from lrep)
+- maybe change PCR->code() to PCR->as_method()
 
-- make lrep use this module
-  
-- optimization: precompile the rules that have return blocks:
-   (check if this still apply)
-   my $rule = sub { ... }
-   *xxx = sub { $rule; ... }
-
-- optimization: inline code in the Engine
+- see "Syntactic categories" in S05 (extensibility)

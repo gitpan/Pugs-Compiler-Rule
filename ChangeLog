@@ -1,0 +1,21 @@
+- new method 'perl5', returns a string that can be eval'ed into a new PCR object
+
+- match variables are available inside the rule: $0, $1
+- /(.)*/ returns an array in @$0
+
+- built-in rules: alpha, alnum, ...
+
+- fixed grammar bug: '$var := (xxx)' is: '$<var> := (xxx)'
+
+- implemented ':' (untested)
+
+- Added support for Grammar inheritance
+- rule methods are internally curryed into functions
+
+  $rule = sub { Grammar->rule_method( @_ ) }
+
+- faster Rule grammar
+- Simplified 'match', 'capture' keys in internal Match
+
+0.01 
+- Initial CPAN release - Pod, Tests, Packaging by audreyt & others.

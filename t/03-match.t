@@ -1,12 +1,49 @@
 
-use Test::More tests => 27;
+use Test::More tests => 33;
 use Data::Dumper;
 
 use_ok( 'Pugs::Compiler::Rule' );
 
 {
+    my $rule = Pugs::Compiler::Rule->compile( '.' );
+    my $match = $rule->match( "xyzw" );
+    is( "$match", "x", 'stringify 1' );
+}
+
+{
+    my $rule = Pugs::Compiler::Rule->compile( '.|.' );
+    my $match = $rule->match( "xyzw" );
+    is( "$match", "x", 'stringify 2' );
+}
+
+{
+    my $rule = Pugs::Compiler::Rule->compile( '.*' );
+    my $match = $rule->match( "xyzw" );
+    is( "$match", "xyzw", 'stringify 4' );
+}
+
+{
+    my $rule = Pugs::Compiler::Rule->compile( '.|.|.' );
+    my $match = $rule->match( "xyzw" );
+    is( "$match", "x", 'stringify 5' );
+}
+
+{
+    my $rule = Pugs::Compiler::Rule->compile( '..|..' );
+    my $match = $rule->match( "xyzw" );
+    is( "$match", "xy", 'stringify 6' );
+}
+
+{
+    my $rule = Pugs::Compiler::Rule->compile( '.:.' );
+    my $match = $rule->match( "xyzw" );
+    is( "$match", "xy", 'stringify 7' );
+}
+
+{
     my $rule = Pugs::Compiler::Rule->compile( '((.).)(.)' );
     my $match = $rule->match( "xyzw" );
+    #print "Match: ", do{use Data::Dumper; Dumper($match)};
     is( "$match", "xyz", 'stringify 1' );
     is( $match->(), "xyz", 'stringify 1' );
     is( "$match->[0]", "xy", 'stringify 2' );
@@ -34,11 +71,11 @@ use_ok( 'Pugs::Compiler::Rule' );
 {
     my $rule = Pugs::Compiler::Rule->compile( '..' );
     my $match = $rule->match( "xyz" );
-    is( "$match", "xy", 'stringify' );
+    is( "$match", "xy", 'concat stringify' );
 }
 
 {
-    my $rule = Pugs::Compiler::Rule->compile( '$z := (.) { return { x => { %{$_[0]} } ,} } ' );
+    my $rule = Pugs::Compiler::Rule->compile( '$<z> := (.) { return { x => { %{$_[0]} } ,} } ' );
     my $match = $rule->match( "abc" );
     ok( $match, 'true match' );
     my $ret = $match->();
@@ -46,8 +83,10 @@ use_ok( 'Pugs::Compiler::Rule' );
 }
 
 {
-    my $rule = Pugs::Compiler::Rule->compile( '$x := (.)  $y := (.)');
+    my $rule = Pugs::Compiler::Rule->compile( '$<x> := (.)  $<y> := (.)');
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
     my $match = $rule->match( "123" );
+    #print "Match: ", do{use Data::Dumper; Dumper($match)};
     my $ret = { x => '1', y => '2' };
     is_deeply( {%$match}, $ret, 'return match' );
     is( "$match", "12", 'stringify' );

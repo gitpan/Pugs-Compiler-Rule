@@ -2,552 +2,476 @@
 ##################((( 32-bit Checksum Validator )))##################
 BEGIN { use 5.006; local (*F, $/); ($F = __FILE__) =~ s!c$!!; open(F)
 or die "Cannot open $F: $!"; binmode(F, ':crlf'); unpack('%32N*',<F>)
-== 0x43B10FF1 or die "Checksum failed for outdated .pmc file: ${F}c"}
+== 0x457B2B60 or die "Checksum failed for outdated .pmc file: ${F}c"}
 #####################################################################
 package Pugs::Grammar::Rule;
-*{'perl5_regex'} = 
-
-    sub { 
-        my $rule = 
-         ruleop::greedy_star(
-             ruleop::alternation( [
-                   ruleop::constant( "\." )
-                 ,
-                   ruleop::constant( "\|" )
-                 ,
-                   ruleop::constant( "\*" )
-                 ,
-                   ruleop::constant( "\+" )
-                 ,
-                   ruleop::constant( "\(" )
-                 ,
-                   ruleop::constant( "\)" )
-                 ,
-                   ruleop::constant( "\[" )
-                 ,
-                   ruleop::constant( "\]" )
-                 ,
-                   ruleop::constant( "\?" )
-                 ,
-                   ruleop::constant( "\:" )
-                 ,
-                   ruleop::constant( "s" )
-                 ,
-                   ruleop::constant( "w" )
-                 ,
-                   ruleop::constant( "_" )
-                 ,
-                   ruleop::constant( "\\" )
-                 ,
-                   ruleop::constant( "\^" )
-                 ,
-                   ruleop::constant( "\$" )
-                 ,
-                   ruleop::constant( "n" )
-                 ,
-                   ruleop::constant( "\#" )
-                 ,
-                   ruleop::constant( "\-" )
-                 ,
-                   ruleop::constant( "\<" )
-                 ,
-                   ruleop::constant( "\>" )
-                 ,
-                   ruleop::constant( "\!" )
-                 ,
-                   ruleop::constant( "alnum" )
-                 ,
-             ] )
-           ,
-         )
-       ,
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { perl5_regex =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
-    }
-;
-*{'perl5_rule_decl'} = 
-
-    sub { 
-        my $rule = 
-       ruleop::concat(
-         ruleop::constant( "rule" )
-       ,
-         ruleop::capture( 'p6ws', \&{'p6ws'} )
-       ,
-         ruleop::capture( 'ident', \&{'ident'} )
-       ,
-         ruleop::optional(
-             ruleop::capture( 'p6ws', \&{'p6ws'} )
-           ,
-         )
-       ,
-         ruleop::constant( "\:" )
-       ,
-         ruleop::constant( "P5" )
-       ,
-         ruleop::capture( 'p6ws', \&{'p6ws'} )
-       ,
-         ruleop::constant( "\{" )
-       ,
-         ruleop::capture( 'perl5_regex', \&{'perl5_regex'} )
-       ,
-         ruleop::constant( "\}" )
-       ,
-       )
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { perl5_rule_decl =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
-    }
-;
-    push @statements, \&perl5_rule_decl;
-*{'word'} = sub {
-    my $bool = $_[0] =~ /^([_[:alnum:]]+)(.*)$/sx;
-    return {
-        bool  => $bool,
-        match => { 'word'=> $1 },
-        tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
-    }
-};
-*{'any'} = sub {
-    my $bool = $_[0] =~ /^(.)(.*)$/sx;
-    return {
-        bool  => $bool,
-        match => { 'any'=> $1 },
-        tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
-    }
-};
-*{'escaped_char'} = sub {
-    my $bool = $_[0] =~ /^\\(.)(.*)$/sx;
-    return {
-        bool  => $bool,
-        match => { 'escaped_char'=> $1 },
-        tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
-    }
-};
-*{'newline'} = sub {
-    my $bool = $_[0] =~ /^(\n)(.*)$/sx;
-    return {
-        bool  => $bool,
-        match => { 'newline'=> $1 },
-        tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
-    }
-};
-*{'ws'} = sub {
-    my $bool = $_[0] =~ /^(\s+)(.*)$/sx;
-    return {
-        bool  => $bool,
-        match => { 'ws'=> $1 },
-        tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
-    }
-};
-*{'p6ws'} = sub {
+*{'Pugs::Grammar::Rule::p6ws'} = sub {
+    my $grammar = shift;
+    #warn "rule argument is undefined" unless defined $_[0];
+    $_[0] = "" unless defined $_[0];
     my $bool = $_[0] =~ /^((?:\s|\#(?-s:.)*)+)(.*)$/sx;
     return {
         bool  => $bool,
-        match => { 'p6ws'=> $1 },
+        match => $1,
         tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
+        #capture => $1,
     }
 };
-*{'non_capturing_subrule'} = sub {
-    my $bool = $_[0] =~ /^\<\?(.*?)\>(.*)$/sx;
+*{'Pugs::Grammar::Rule::variable'} = sub {
+    my $grammar = shift;
+    #warn "rule argument is undefined" unless defined $_[0];
+    $_[0] = "" unless defined $_[0];
+    my $bool = $_[0] =~ /^([$%@](?:(?:\:\:)?[_[:alnum:]]+)+)(.*)$/sx;
     return {
         bool  => $bool,
-        match => { 'non_capturing_subrule'=> $1 },
+        match => $1,
         tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
+        #capture => $1,
     }
 };
-    push @rule_terms, \&non_capturing_subrule;
-*{'negated_subrule'} = sub {
-    my $bool = $_[0] =~ /^\<\!(.*?)\>(.*)$/sx;
+*{'Pugs::Grammar::Rule::ident'} = sub {
+    my $grammar = shift;
+    #warn "rule argument is undefined" unless defined $_[0];
+    $_[0] = "" unless defined $_[0];
+    my $bool = $_[0] =~ /^((?:(?:\:\:)?[_[:alnum:]]+)+)(.*)$/sx;
     return {
         bool  => $bool,
-        match => { 'negated_subrule'=> $1 },
+        match => $1,
         tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
+        #capture => $1,
     }
 };
-    push @rule_terms, \&negated_subrule;
-*{'subrule'} = sub {
-    my $bool = $_[0] =~ /^\<(.*?)\>(.*)$/sx;
+*{'Pugs::Grammar::Rule::num_variable'} = sub {
+    my $grammar = shift;
+    #warn "rule argument is undefined" unless defined $_[0];
+    $_[0] = "" unless defined $_[0];
+    my $bool = $_[0] =~ /^(?:\$[[:digit:]]+)(.*)$/sx;
     return {
         bool  => $bool,
-        match => { 'subrule'=> $1 },
+        match => $1,
         tail  => $2,
-        ( $_[2]->{capture} ? ( capture => [ $1 ] ) : () ),
+        #capture => $1,
     }
 };
-    push @rule_terms, \&subrule;
-*{'const_word'} = 
-
-    sub { 
-        my $rule = 
-         ruleop::capture( 'word', \&{'word'} )
-       ,
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { constant =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
+*{'Pugs::Grammar::Rule::escaped_char'} = sub {
+    my $grammar = shift;
+    #warn "rule argument is undefined" unless defined $_[0];
+    $_[0] = "" unless defined $_[0];
+    my $bool = $_[0] =~ /^\\(.)(.*)$/sx;
+    return {
+        bool  => $bool,
+        match => $1,
+        tail  => $2,
+        #capture => $1,
     }
-;
-    unshift @rule_terms, \&const_word;
-*{'const_escaped_char'} = 
-
-    sub { 
-        my $rule = 
-         ruleop::capture( 'escaped_char', \&{'escaped_char'} )
-       ,
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { constant =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
+};
+*{'Pugs::Grammar::Rule::dot'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          constant( "\." )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return { 'dot' => 1 ,} } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+    unshift @Pugs::Grammar::Rule::rule_terms, 'dot';
+*{'Pugs::Grammar::Rule::_word_char'} = sub {
+    my $grammar = shift;
+    #warn "rule argument is undefined" unless defined $_[0];
+    $_[0] = "" unless defined $_[0];
+    my $bool = $_[0] =~ /^([[:alnum:]])(.*)$/sx;
+    return {
+        bool  => $bool,
+        match => $1,
+        tail  => $2,
+        #capture => $1,
     }
-;
-    unshift @rule_terms, \&const_escaped_char;
-*{'dot'} = 
-
-    sub { 
-        my $rule = 
-         ruleop::capture( 'capturing_group',
-             ruleop::constant( "\." )
-           ,
-         )
-       ,
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { dot =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
-    }
-;
-    unshift @rule_terms, \&dot;
-*{'rule'} = 
-         ruleop::greedy_star(
-             ruleop::alternation( [
-                   \&{'alt'}
-                 ,
-                   \&{'quantifier'}
-                 ,
-             ] )
-           ,
-         )
-       ,
-;
-*{'non_capturing_group'} = 
-       ruleop::concat(
-         ruleop::constant( "\[" )
-       ,
-         \&{'rule'}
-       ,
-         ruleop::constant( "\]" )
-       ,
-       )
-;
-    push @rule_terms, \&non_capturing_group;
-*{'closure_rule'} = 
-
-    sub { 
-        my $rule = 
-         ruleop::capture( 'code', \&{'code'} )
-       ,
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { closure =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
-    }
-;
-    unshift @rule_terms, \&closure_rule;
-*{'variable_rule'} = 
-
-    sub { 
-        my $rule = 
-         ruleop::capture( 'variable', \&{'variable'} )
-       ,
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { variable =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
-    }
-;
-    unshift @rule_terms, \&variable_rule;
-*{'runtime_alternation'} = 
-
-    sub { 
-        my $rule = 
-       ruleop::concat(
-         ruleop::constant( "\<" )
-       ,
-         ruleop::capture( 'variable', \&{'variable'} )
-       ,
-         ruleop::constant( "\>" )
-       ,
-       )
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { runtime_alternation =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
-    }
-;
-    unshift @rule_terms, \&runtime_alternation;
-*{'named_capture'} = 
-
-    sub { 
-        my $rule = 
-       ruleop::concat(
-         ruleop::constant( "\$" )
-       ,
-         ruleop::capture( 'ident', \&{'ident'} )
-       ,
-         ruleop::optional(
-             \&{'p6ws'}
-           ,
-         )
-       ,
-         ruleop::constant( "\:" )
-       ,
-         ruleop::constant( "\=" )
-       ,
-         ruleop::optional(
-             \&{'p6ws'}
-           ,
-         )
-       ,
-         ruleop::constant( "\(" )
-       ,
-         ruleop::capture( 'rule', \&{'rule'} )
-       ,
-         ruleop::constant( "\)" )
-       ,
-       )
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { named_capture =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
-    }
-;
-    unshift @rule_terms, \&named_capture;
-*{'immediate_statement_rule'} = 
-       ruleop::concat(
-         ruleop::optional(
-             \&{'p6ws'}
-           ,
-         )
-       ,
-         ruleop::alternation( \@statements )
-       ,
-         ruleop::optional(
-             \&{'p6ws'}
-           ,
-         )
-       ,
-       )
-;
-*{'grammar'} = 
-         ruleop::greedy_star(
-             ruleop::capture( 'immediate_statement_exec', \&{'immediate_statement_exec'} )
-           ,
-         )
-       ,
-;
-*{'rule_decl'} = 
-
-    sub { 
-        my $rule = 
-       ruleop::concat(
-         ruleop::constant( "rule" )
-       ,
-         ruleop::capture( 'p6ws', \&{'p6ws'} )
-       ,
-         ruleop::capture( 'ident', \&{'ident'} )
-       ,
-         ruleop::optional(
-             ruleop::capture( 'p6ws', \&{'p6ws'} )
-           ,
-         )
-       ,
-         ruleop::constant( "\{" )
-       ,
-         ruleop::capture( 'rule', \&{'rule'} )
-       ,
-         ruleop::constant( "\}" )
-       ,
-       )
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { rule_decl =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
-    }
-;
-    push @statements, \&rule_decl;
-*{'grammar_name'} = 
-
-    sub { 
-        my $rule = 
-       ruleop::concat(
-         ruleop::constant( "grammar" )
-       ,
-         ruleop::capture( 'p6ws', \&{'p6ws'} )
-       ,
-         ruleop::capture( 'ident', \&{'ident'} )
-       ,
-         ruleop::optional(
-             ruleop::capture( 'p6ws', \&{'p6ws'} )
-           ,
-         )
-       ,
-         ruleop::constant( "\;" )
-       ,
-       )
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { grammar_name =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
-    }
-;
-    push @statements, \&grammar_name;
-*{'_push'} = 
-
-    sub { 
-        my $rule = 
-       ruleop::concat(
-         ruleop::capture( 'op', 
-             ruleop::alternation( [
-                   ruleop::constant( "push" )
-                 ,
-                   ruleop::constant( "unshift" )
-                 ,
-             ] )
-           ,
-         )
-       ,
-         ruleop::capture( 'p6ws', \&{'p6ws'} )
-       ,
-         ruleop::capture( 'variable', \&{'variable'} )
-       ,
-         ruleop::optional(
-             ruleop::capture( 'p6ws', \&{'p6ws'} )
-           ,
-         )
-       ,
-         ruleop::constant( "\," )
-       ,
-         ruleop::optional(
-             ruleop::capture( 'p6ws', \&{'p6ws'} )
-           ,
-         )
-       ,
-         ruleop::capture( 'code', 
-             ruleop::non_greedy_star(
-                 \&{'any'}
-               ,
-             )
-           ,
-         )
-       ,
-         ruleop::optional(
-             ruleop::capture( 'p6ws', \&{'p6ws'} )
-           ,
-         )
-       ,
-         ruleop::constant( "\;" )
-       ,
-       )
-    ;
-        my $match = $rule->( @_ );
-        return unless $match;
-        my $capture_block = sub { return { _push =>  match::get( $_[0], '$()' )  ,} }       ,
-; 
-        #use Data::Dumper;
-        #print "capture was: ", Dumper( $match->{capture} );
-        return { 
-            %$match,
-            capture => [ $capture_block->( $match ) ],
-        }; 
-    }
-;
-    push @statements, \&_push;
+};
+*{'Pugs::Grammar::Rule::word'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          capture( '_word_char', sub{ $grammar->_word_char(@_) } )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return { 'constant' => $_[0]{_word_char}() ,} } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+    unshift @Pugs::Grammar::Rule::rule_terms, 'word';
+*{'Pugs::Grammar::Rule::special_char'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          capture( 'escaped_char', sub{ $grammar->escaped_char(@_) } )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return { special_char => $_[0]{escaped_char}(), } } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+    unshift @Pugs::Grammar::Rule::rule_terms, 'special_char';
+*{'Pugs::Grammar::Rule::non_capturing_group'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          constant( "\[" )
+        ,
+          capture( 'rule', sub{ $grammar->rule(@_) } )
+        ,
+          constant( "\]" )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return $_[0]{rule}() } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+    push @Pugs::Grammar::Rule::rule_terms, 'non_capturing_group';
+*{'Pugs::Grammar::Rule::closure_rule'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          capture( 'code', sub{ $grammar->code(@_) } )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return { closure => $_[0]{code}() ,} } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+    unshift @Pugs::Grammar::Rule::rule_terms, 'closure_rule';
+*{'Pugs::Grammar::Rule::variable_rule'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          capture( 'variable', sub{ $grammar->variable(@_) } )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return { variable =>  $_[0]->()  ,} } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+    unshift @Pugs::Grammar::Rule::rule_terms, 'variable_rule';
+*{'Pugs::Grammar::Rule::match_variable'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          capture( 'num_variable', sub{ $grammar->num_variable(@_) } )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return { match_variable => $_[0]{num_variable}() ,} } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+    unshift @Pugs::Grammar::Rule::rule_terms, 'match_variable';
+*{'Pugs::Grammar::Rule::named_capture'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          constant( "\$" )
+        ,
+          constant( "\<" )
+        ,
+          capture( 'ident', sub{ $grammar->ident(@_) } )
+        ,
+          constant( "\>" )
+        ,
+          optional(
+              sub{ $grammar->p6ws(@_) }
+            ,
+          )
+        ,
+          constant( "\:" )
+        ,
+          constant( "\=" )
+        ,
+          optional(
+              sub{ $grammar->p6ws(@_) }
+            ,
+          )
+        ,
+          constant( "\(" )
+        ,
+          capture( 'rule', sub{ $grammar->rule(@_) } )
+        ,
+          constant( "\)" )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return { named_capture => {
+                ident => $_[0]{ident}(),
+                rule  => $_[0]{rule}(),
+            }, } 
+        } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+    unshift @Pugs::Grammar::Rule::rule_terms, 'named_capture';
+*{'Pugs::Grammar::Rule::capturing_group'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          constant( "\(" )
+        ,
+          capture( 'rule', sub{ $grammar->rule(@_) } )
+        ,
+          constant( "\)" )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return { capturing_group => $_[0]{rule}() ,} } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+    unshift @Pugs::Grammar::Rule::rule_terms, 'capturing_group';
+*{'Pugs::Grammar::Rule::colon1'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          constant( "\:" )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return { colon => 1 ,} } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+    push @Pugs::Grammar::Rule::rule_terms, 'colon1';
+*{'Pugs::Grammar::Rule::quantifier'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          optional(
+              sub{ $grammar->p6ws(@_) }
+            ,
+          )
+        ,
+          capture( 'term', 
+              alternation( \@Pugs::Grammar::Rule::rule_terms )
+            ,
+          )
+        ,
+          optional(
+              sub{ $grammar->p6ws(@_) }
+            ,
+          )
+        ,
+          capture( 'quant', 
+              optional(
+                  alternation( [
+                      concat(
+                        constant( "\?" )
+                      ,
+                        constant( "\?" )
+                      ,
+                      ),
+                      concat(
+                        constant( "\*" )
+                      ,
+                        constant( "\?" )
+                      ,
+                      ),
+                      concat(
+                        constant( "\+" )
+                      ,
+                        constant( "\?" )
+                      ,
+                      ),
+                        constant( "\?" )
+                      ,
+                        constant( "\*" )
+                      ,
+                        constant( "\+" )
+                      ,
+                  ] )
+                ,
+              )
+            ,
+          )
+        ,
+          optional(
+              sub{ $grammar->p6ws(@_) }
+            ,
+          )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return {  
+            term =>  $_[0]{term}(),
+            quant => $_[0]{quant}(),
+        } 
+    } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+*{'Pugs::Grammar::Rule::concat'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          capture( 'q1', 
+              capture( 'quantifier', sub{ $grammar->quantifier(@_) } )
+            ,
+          )
+        ,
+          optional(
+            concat(
+              capture( 'q2', 
+                  capture( 'concat', sub{ $grammar->concat(@_) } )
+                ,
+              )
+            ,
+              Pugs::Runtime::Rule::abort(
+                  sub {
+                      return { bool => 1, tail => $_[0], return => sub { return { concat => [ 
+                { quant => $_[0]{q1}() ,}, 
+                $_[0]{q2}(),
+            ] ,} 
+        } };
+                  }
+              )
+            ,
+            ),
+          )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return { quant => $_[0]{q1}() ,} } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
+*{'Pugs::Grammar::Rule::rule'} = 
+sub {
+    my $grammar = shift;
+    $_[0] = '' unless defined $_[0];
+    package Pugs::Runtime::Rule;
+    rule_wrapper( $_[0], (
+        concat(
+          capture( 'q1', 
+              capture( 'concat', sub{ $grammar->concat(@_) } )
+            ,
+          )
+        ,
+          optional(
+            concat(
+              constant( "\|" )
+            ,
+              capture( 'q2', 
+                  capture( 'rule', sub{ $grammar->rule(@_) } )
+                ,
+              )
+            ,
+              Pugs::Runtime::Rule::abort(
+                  sub {
+                      return { bool => 1, tail => $_[0], return => sub { return { alt => [ 
+                $_[0]{q1}(), 
+                $_[0]{q2}(),
+            ] ,} 
+        } };
+                  }
+              )
+            ,
+            ),
+          )
+        ,
+          Pugs::Runtime::Rule::abort(
+              sub {
+                  return { bool => 1, tail => $_[0], return => sub { return $_[0]{q1}() } };
+              }
+          )
+        ,
+        ),
+        )->( @_ )
+    )
+};
