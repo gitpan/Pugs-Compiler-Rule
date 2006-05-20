@@ -1,5 +1,5 @@
 
-use Test::More tests => 22;
+use Test::More tests => 23;
 use Data::Dumper;
 $Data::Dumper::Indent = 1;
 
@@ -88,6 +88,13 @@ no warnings qw( once );
 }
 
 {
+    # not-special chars
+    my $rule = Pugs::Compiler::Rule->compile( ',' );
+    my $match = $rule->match( "," );
+    is( "$match", ",", 'comma is not a special char' );
+}
+
+{
     # escaped chars
     my $rule = Pugs::Compiler::Rule->compile( '\(' );
     my $match = $rule->match( "(xy12)" );
@@ -117,7 +124,6 @@ no warnings qw( once );
 
 {
     # escaped chars
-    no warnings 'uninitialized';
     my $rule = Pugs::Compiler::Rule->compile( '\N' );
     my $match = $rule->match( "\n\n" );
     is( "$match", "", 'escaped char \\N' );

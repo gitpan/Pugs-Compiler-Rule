@@ -13,15 +13,17 @@ Abstract Syntax Tree (AST) for Rules.
 
 =cut
  
-rule p6ws     :P5 {^((?:\s|\#(?-s:.)*)+)}
+rule ws     :P5 {^((?:\s|\#(?-s:.)*)+)}
 
-rule variable :P5 {^([$%@](?:(?:\:\:)?[_[:alnum:]]+)+)}
+rule variable :P5 {^([\$\%\@](?:(?:\:\:)?[_[:alnum:]]+)+)}
+
+rule positional_variable 
+              :P5 {^([\$\%\@]\^(?:[_[:alnum:]]+))}
 
 rule ident    :P5 {^((?:(?:\:\:)?[_[:alnum:]]+)+)}
 
 rule num_variable :P5 {^(?:\$[[:digit:]]+)}
 
-rule escaped_char :P5 {^\\(.)}
 
 # terms
 
@@ -32,19 +34,17 @@ rule escaped_char :P5 {^\\(.)}
     }
     unshift @rule_terms, 'dot';
     
-    # \w not implemented in lrep...
-    rule _word_char    :P5 {^([[:alnum:]])}
-    rule word {
-        <_word_char>    
+    rule plain_text {
+        <alnum> | \, | \; | \_ | \/ | \~ | \" | \'
             
-        { return { 'constant' => $_[0]{_word_char}() ,} }
+        { return { 'constant' => $() ,} }
     }
-    unshift @rule_terms, 'word';
+    unshift @rule_terms, 'plain_text';
     
     rule special_char {
-        <escaped_char>
+        \\ .
 
-        { return { special_char => $_[0]{escaped_char}(), } } 
+        { return { special_char => $(), } } 
     }
     unshift @rule_terms, 'special_char';
     
@@ -56,14 +56,14 @@ rule escaped_char :P5 {^\\(.)}
     push @rule_terms, 'non_capturing_group';
     
     rule closure_rule {
-        <code> 
+        <code>
             
         { return { closure => $_[0]{code}() ,} }
     }
     unshift @rule_terms, 'closure_rule';
     
     rule variable_rule {
-        <variable> 
+        <variable> | <positional_variable>
             
         { return { variable => $() ,} }
     }
@@ -78,7 +78,7 @@ rule escaped_char :P5 {^\\(.)}
     unshift @rule_terms, 'match_variable';
     
     rule named_capture {
-        \$ \< <ident> \> <?p6ws>? \:\= <?p6ws>? \( <rule> \) 
+        \$ \< <ident> \> <?ws>? \:\= <?ws>? \( <rule> \) 
         
         { return { named_capture => {
                 ident => $_[0]{ident}(),
@@ -88,6 +88,26 @@ rule escaped_char :P5 {^\\(.)}
     }
     unshift @rule_terms, 'named_capture';
         
+    rule before {
+        \< before <?ws> <rule> \> 
+        
+        { return { before => {
+                rule  => $_[0]{rule}(),
+            }, } 
+        }
+    }
+    unshift @rule_terms, 'before';
+        
+    rule after {
+        \< after <?ws> <rule> \> 
+        
+        { return { after => {
+                rule  => $_[0]{rule}(),
+            }, } 
+        }
+    }
+    unshift @rule_terms, 'after';
+        
     rule capturing_group {
         \( <rule> \)
             
@@ -95,20 +115,25 @@ rule escaped_char :P5 {^\\(.)}
     }
     unshift @rule_terms, 'capturing_group';
     
-    rule colon1 {
-        \:
+    rule colon {
+        ( 
+            [ \:\:\: ] | 
+            [ \:\: ]   | \: |
+            [ \$\$ ]   | \$ |
+            [ \^\^ ]   | \^
+        )
             
-        { return { colon => 1 ,} }
+        { return { colon => $_[0]->() ,} }
     }
-    push @rule_terms, 'colon1';
+    push @rule_terms, 'colon';
     
 # /terms
 
 
 rule quantifier {
-    <?p6ws>?
+    <?ws>?
     $<term> := (<@Pugs::Grammar::Rule::rule_terms>)
-    <?p6ws>?
+    <?ws>?
     $<quant> := (
         [ 
             [ \?\? ] |
@@ -119,7 +144,7 @@ rule quantifier {
             \+
         ]?
     )
-    <?p6ws>?
+    <?ws>?
     
     { return {  
             term =>  $_[0]{term}(),

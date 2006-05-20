@@ -1,3 +1,27 @@
+- '<after ...>' - in :ratchet mode only
+
+- the 'p' switch should now be specified as 'p => 0' instead of 'p => 1'.
+  'p => 1' now matches at the second character in the string.
+  The default is 'p => undef' - matches anywhere in the string.
+
+- added ':ratchet' switch. 
+
+- implemented parameters in subrule call (named only, constants only)
+
+- '<before ...>', '$'
+
+- new class 'Pugs::Grammar::Category'
+
+- implemented '%hash', but it doesn't use a trie yet.
+
+- fixed subrule backtracking
+
+- fixed method 'perl5'
+
+- Perl 5 emitter character classes (partially) implemented
+
+0.02  2006-03-28
+
 - new method 'perl5', returns a string that can be eval'ed into a new PCR object
 
 - match variables are available inside the rule: $0, $1

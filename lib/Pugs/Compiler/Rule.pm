@@ -1,5 +1,5 @@
 package Pugs::Compiler::Rule;
-$Pugs::Compiler::Rule::VERSION = '0.02';
+$Pugs::Compiler::Rule::VERSION = '0.03';
 
 # Documentation in the __END__
 use 5.006;
@@ -11,23 +11,54 @@ use Pugs::Grammar::Rule;
 #use Pugs::Runtime::Rule;
 use Pugs::Runtime::Match;
 use Pugs::Emitter::Rule::Perl5;
+use Pugs::Emitter::Rule::Perl5::Ratchet;
+
+use Data::Dumper;
 
 sub new { $_[0] }
 
 sub compile {
-    my ( $class, $rule_source, %param ) = @_;
+    
+    # $class->compile( $source )
+    # $class->compile( $source, { p=>1 } )
+    # $class->compile( $source, { signature => $sig } ) -- TODO
+
+    my ( $class, $rule_source, $param ) = @_;
 
     my $self = { source => $rule_source };
 
-    # XXX - should use user's lexical pad instead?
-    $self->{grammar} = delete $param{grammar} || 'Pugs::Grammar::Base';
+    # XXX - should use user's lexical pad instead of an explicit grammar?
+    $self->{grammar}  = delete $param->{grammar}  || 
+                        'Pugs::Grammar::Base';
+    $self->{ratchet}  = delete $param->{ratchet}  || 
+                        0;
+    $self->{p}        = delete $param->{pos};
+    $self->{p}        = delete $param->{p}    unless defined $self->{p};
+                        # default = undef;
+    $self->{sigspace} = delete $param->{sigspace} ||
+                        delete $param->{s}        || 
+                        0;
 
+    warn "Error in rule: unknown parameter '$_'" 
+        for keys %$param;
+
+    warn "Error in rule: 'sigspace' not implemented"
+        if $self->{sigspace};
+
+    #print 'rule source: ', $self->{source}, "\n";
     $self->{ast} = Pugs::Grammar::Rule->rule( 
         $self->{source} );
     die "Error in rule: '$rule_source' at: '$self->{ast}{tail}'\n" if $self->{ast}{tail};
     #print 'rule ast: ', do{use Data::Dumper; Dumper($self->{ast}{capture})};
-    $self->{perl5} = Pugs::Emitter::Rule::Perl5::emit( 
-        $self->{grammar}, $self->{ast}{capture} );
+
+    if ( $self->{ratchet} ) {
+        $self->{perl5} = Pugs::Emitter::Rule::Perl5::Ratchet::emit( 
+            $self->{grammar}, $self->{ast}{capture} );
+    }
+    else {
+        $self->{perl5} = Pugs::Emitter::Rule::Perl5::emit( 
+            $self->{grammar}, $self->{ast}{capture} );
+    }
     #print 'rule perl5: ', do{use Data::Dumper; Dumper($self->{perl5})};
 
     local $@;
@@ -41,33 +72,79 @@ sub compile {
 sub code { 
     my $rule = shift; 
     sub { 
-        my $grammar = shift;
-        $rule->match( $_[0], $grammar ); 
+        # XXX - inconsistent parameter order - could just use @_, or use named params
+        my ( $grammar, $str, $flags, $state ) = @_; 
+        $rule->match( $str, $grammar, $flags, $state ); 
     } 
 }
 
 sub match {
-    my ( $rule, $str, $grammar ) = @_; 
+    my ( $rule, $str, $grammar, $flags, $state ) = @_; 
+    
+    return Pugs::Runtime::Match->new( { bool => 0 } )
+        unless defined $str;   # XXX - fix?
+        
     $grammar ||= $rule->{grammar};
-    #warn "match: grammar $rule->{grammar}, $_[0]";
+    #print "match: grammar $rule->{grammar}, $_[0], $flags\n";
+    #print "match: Variables: ", Dumper ( $flags->{args} ) if defined $flags->{args};
+
+    my $p = defined $flags->{p} 
+            ? $flags->{p} 
+            : $rule->{p};
+
+    if ( defined $p ) {
+        #print "flag p";
+        #print "match: grammar $rule->{grammar}, $str, %$flags\n";
+        #print $rule->{code};
+
+        # XXX BUG! - $rule->{code} disappeared - in t/08-hash.t ???
+        unless ( defined $rule->{code} ) {
+            local $@;
+            $rule->{code} = eval 
+                $rule->{perl5};
+            die "Error in evaluation: $@\nSource:\n$rule->{perl5}\n" if $@;
+        }
+        
+        my %args;
+        %args = %{$flags->{args}} if defined $flags && defined $flags->{args};
+        $args{p} = $p;
+        
+        my $match = $rule->{code}( 
+            $grammar,
+            $str, 
+            $state,
+            \%args,
+        );
+        eval { $$match->{from} = 0 };   # XXX
+        return $match;  
+    }
+
     foreach my $i (0..length($str)) {
         my $match = $rule->{code}( 
             $grammar,
-            substr($str, $i) 
+            substr($str, $i),
+            $state,
+            $flags->{args},
         );
-        defined $match or next;
-        $match->{from} = $i;
-        return Pugs::Runtime::Match->new( $match ) 
+        $match or next;   
+        eval { $$match->{from} = $i unless defined $$match->{from} };   # XXX
+        return $match;  
     }
     return Pugs::Runtime::Match->new( { bool => 0 } );   # XXX - fix?
 }
 
+sub _str { defined $_[0] ? $_[0] : 'undef' }
+
 sub perl5 {
     my $self = shift;
-    return "bless { " . 
-        "code => "    . $self->{perl5} . ",\n" . 
-        "perl5 => q(" . $self->{perl5} . ") }, " . 
-        __PACKAGE__;
+    return "bless {\n" . 
+        "  grammar "  .  "=> q(" . _str( $self->{grammar} )  . "),\n" . 
+        "  ratchet "  .  "=> q(" . _str( $self->{ratchet} )  . "),\n" . 
+        "  p "        .  "=> q(" . _str( $self->{p} )        . "),\n" . 
+        "  sigspace " .  "=> q(" . _str( $self->{sigspace} ) . "),\n" . 
+        "  code "     .  "=> "   . $self->{perl5}    . ",\n" . 
+        "  perl5 "    .  "=> q(" . $self->{perl5}    . "), }, " . 
+        "q(" . __PACKAGE__ . ")";
 }
 
 1;
@@ -99,10 +176,18 @@ Named rules are methods in a Grammar:
 
     package MyGrammar;
     use Pugs::Compiler::Rule;
-    use Pugs::Grammar::Base;
+    use base 'Pugs::Grammar::Base';
 
     *rule = Pugs::Compiler::Rule->compile( '((.).).' )->code;
     my $match = MyGrammar->rule( 'abc' );
+
+Rules may have parameters:
+
+    *subrule = $grammar->compile( $source, { signature => $sig } )->code;
+
+    *rule = $grammar->compile( '
+            <subrule: param1, param2>
+        ' )->code;
 
 =head1 DESCRIPTION
 
@@ -150,7 +235,12 @@ to several other modules:
  <$var>      
  <?subrule>
  <!subrule>
- 
+ <before ...>
+ <after ...>         -- implemented in :ratchet mode only
+ <subrule('param')>  -- constant parameters only
+
+ %hash
+
  <@var>             -- special-cased for array-of-rule (but not Rule|Str)
  \char              -- not all chars implemented
  {code}             -- non-capturing closure
@@ -165,32 +255,36 @@ to several other modules:
  $<0> $<1>
  $0 $1
  \n \N
+ $^a $^b            -- positional parameters (must start with $^a)
+ ^ $
+ :
 
-=head2 Unimplemented Features
+=head2 Unimplemented or untested features
 
  $variable 
  @variable
  $/<0> $/<1>
  $/0 $/1
  <"literal">
- ^ ^^ $ $$
+ ^^ $$
  <unicode-class> <+unicode-class> <+unicode-class+unicode-class>
  <&var> 
  <%var>
  **{n..m}
- : :: :::   (commit)
+ :: :::   (commit)
  $var := [non-capture]
  $var := <rule>
  <(closure-assertion)> <{code-returns-rule}>
  <<character-class>> <[character-class]>
  :flag :flag() :flag[]
- lookahead lookbehind
  \x0a \0123 ...
  &    
+ $1      - lvalue match variables
+ $/ $()  - global match variables 
 
 =head1 METHODS
 
-=head2 compile (Str $rule_source)
+=head2 compile (Str $rule_source, \%options )
 
 Class method.  Returns a compiled rule object, or throws an exception on
 invalid rule syntax.
@@ -199,6 +293,10 @@ options:
 
 =item * grammar => $class - Specify which namespace (Grammar) the rule 
 belongs to.
+
+=item * ratchet => 1 - Disable backtracking. Match faster.
+
+=item * pos => $pos - Specify a string position to match. Starts in zero.
 
 =head2 match (Str $match_against)
 
@@ -210,15 +308,15 @@ Instance method.  Returns a string that can be eval'ed into a rule object.
 
 =head1 CAVEATS
 
-This is an experimental development version.  There are currently no support
-for match flags, and the API is still in flux.
+This is an experimental development version.  The API is still in flux.
 
-It is currently unsuitable for just about any use other than Pugs development.
-Please join us on irc.freenode.net #perl6 if you'd like to participate. :-)
+The set of implemented features depends on the C<ratchet> switch.
 
 =head1 AUTHORS
 
 The Pugs Team E<lt>perl6-compiler@perl.orgE<gt>.
+
+Please join us on irc.freenode.net #perl6 if you'd like to participate.
 
 =head1 SEE ALSO
 

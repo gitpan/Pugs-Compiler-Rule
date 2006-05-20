@@ -11,26 +11,39 @@ $Data::Dumper::Indent = 1;
 
 # XXX - reuse this sub in metasyntax()
 sub call_subrule {
-    my $name = $_[0];
-    $name = "\$grammar->" . $_[0] unless $_[0] =~ / :: | \. | -> /x;
-    $name =~ s/\./->/;   # XXX - source filter
+    my ( $subrule, $tab, @param ) = @_;
+    $subrule = "\$_[4]->" . $subrule unless $subrule =~ / :: | \. | -> /x;
+    $subrule =~ s/\./->/;   # XXX - source filter
     return 
-        "$_[1] sub{ \n" .
-        "$_[1]     $name( \@_ );\n" .
-        "$_[1] }\n";
+        "$tab sub{ \n" .
+        "$tab     # param: @param \n" .
+        "$tab     $subrule( \$_[0], { p => 0, args => {" . join(", ",@param) . "} }, \$_[1] );\n" .
+        "$tab }\n";
 }
 
 sub emit {
     my ($grammar, $ast) = @_;
+    # runtime parameters: $grammar, $string, $state, $arg_list
+    # rule parameters: see Runtime::Rule.pm
     return 
-        "sub {\n" . 
-        "    my \$grammar = shift;\n" .
+        "do {\n" .
         "    package Pugs::Runtime::Rule;\n" .
+        "    my \$matcher = \n" . 
+        emit_rule( $ast, '    ' ) . "  ;\n" .
+        "  sub {\n" . 
+        "    my \$grammar = shift;\n" .
         "    my \$tree;\n" .
-        "    rule_wrapper( \$_[0], \n" . 
-        emit_rule( $ast, '  ' ) . 
-        "        ->( \$_[0], undef, \$tree, \$tree )\n" .
+        "    my \$pos = \$_[2]{p};\n" .
+        "    \$pos = 0 unless defined \$pos;   # TODO - .*? \$match \n" .
+        "    my \$s = \$_[0]; # TODO - substr( \$_[0], \$pos );\n" .
+        # "    print \"\\nVariables: args[\", join(\",\",\@_) ,\"] \\n\";\n" .
+        # "    print \"         : \@{\$_[2]}} \\n\" if defined \$_[2];\n" .
+        # "    \$_[0] = '' unless defined \$_[0];\n" .
+        "    my \$match = rule_wrapper( \$_[0], \n" . 
+        "        \$matcher->( \$s, \$_[1], \$tree, \$tree, \$grammar, 0, \$s, \$_[2] )\n" .
         "    );\n" .
+        "    return Pugs::Runtime::Match->new( \$match );\n" .
+        "  }\n" .
         "}\n";
 }
 
@@ -39,6 +52,7 @@ sub emit_rule {
     my $tab = $_[1] . '  ';
     die "unknown node: ", Dumper( $n )
         unless ref( $n ) eq 'HASH';
+    #print "NODE ", Dumper($n);
     my ( $k, $v ) = each %$n;
     # XXX - use real references
     no strict 'refs';
@@ -112,16 +126,39 @@ sub dot {
 }
 sub variable {
     my $name = "$_[0]";
-    my $value = "sub { die 'interpolation of $name not implemented' }\n";
+    my $value = undef;
     # XXX - eval $name doesn't look up in user lexical pad
-    $value = eval $name if $name =~ /^\$/;
+    # XXX - what &xxx interpolate to?
+    
+    if ( $name =~ /^\$/ ) {
+        # $^a, $^b
+        if ( $name =~ /^ \$ \^ ([^\s]*) /x ) {
+            my $index = ord($1)-ord('a');
+            #print "Variable #$index\n";
+            #return "$_[1] constant( \$_[7][$index] )\n";
+            
+            my $code = 
+            "    sub { 
+                #print \"Runtime Variable args[\", join(\",\",\@_) ,\"] \$_[7][$index]\\n\";
+                return constant( \$_[7][$index] )->(\@_);
+            }";
+            $code =~ s/^/$_[1]/mg;
+            return "$code\n";
+        }
+        else {
+            $value = eval $name;
+        }
+    }
+    
     $value = join('', eval $name) if $name =~ /^\@/;
     if ( $name =~ /^%/ ) {
-        # XXX - what hash/code interpolate to?
-        # $value = join('', eval $name) if $name =~ /^\%/;
-        warn "hash interpolation not implemented";
-        return;
+        # XXX - runtime or compile-time interpolation?
+        return "$_[1] hash( \\$name )\n" if $name =~ /::/;
+        return "$_[1] hash( get_variable( '$name' ) )\n";
     }
+    die "interpolation of $name not implemented"
+        unless defined $value;
+
     return "$_[1] constant( '" . $value . "' )\n";
 }
 sub special_char {
@@ -130,6 +167,7 @@ sub special_char {
         return "$_[1] perl5( '\\$_' )\n" if $char eq $_;
         return "$_[1] perl5( '[^\\$_]' )\n" if $char eq uc($_);
     }
+    $char = '\\\\' if $char eq '\\';
     return "$_[1] constant( q!$char! )\n" unless $char eq '!';
     return "$_[1] constant( q($char) )\n";
 }
@@ -155,11 +193,13 @@ sub closure {
     $code =~ s/ ([^']) \$ < (.*?) > /$1 \$_[0]->{$2} /sgx;
     # $()
     $code =~ s/ ([^']) \$ \( \) /$1 \$_[0]->() /sgx;
+    # $/
+    $code =~ s/ ([^']) \$ \/ /$1 \$_[0] /sgx;
     #print "Code: $code\n";
     
     return 
         "$_[1] sub {\n" . 
-        "$_[1]     $code;\n" . 
+        "$_[1]     $code( \@_ );\n" . 
         "$_[1]     return { bool => 1, tail => \$_[0] }\n" .
         "$_[1] }\n"
         unless $code =~ /return/;
@@ -179,14 +219,25 @@ sub named_capture {
         emit_rule($program, $_[1]) . 
         "$_[1] )\n";
 }
+sub before {
+    my $program = $_[0]{rule};
+    return 
+        "$_[1] before( \n" . 
+        emit_rule($program, $_[1]) . 
+        "$_[1] )\n";
+}
 sub colon {
-    my $num = $_[0];
-    return "$_[1] alternation( [ null(), abort() ] ) \n"
-        if $num == 1;
-    die (':' x $num) . " not implemented";
+    my $str = $_[0];
+    return "$_[1] alternation( [ null(), fail() ] ) \n"
+        if $str eq ':';
+    return "$_[1] end_of_string() \n" 
+        if $str eq '$';
+    die "'$str' not implemented";
 }
 sub constant {
-    return "$_[1] constant( q($_[0]) )\n";
+    my $char = $_[0] eq '\\' ? '\\\\' : $_[0];
+    return "$_[1] constant( q!$char! )\n" unless $char =~ /!/;
+    return "$_[1] constant( q($char) )\n";
 }
 sub metasyntax {
     # <cmd>
@@ -201,28 +252,36 @@ sub metasyntax {
         if ( $cmd =~ /::/ ) {
             # call method in fully qualified $package::var
             return 
-                "$_[1] sub { $cmd->match( \@_ ) }\n";
+                "$_[1] sub { $cmd->match( \@_[0, 4], {p => 0}, \$_[1] ) }\n";
         }
         # call method in lexical $var
         return 
             "$_[1] sub { \n" . 
             "$_[1]     my \$r = get_variable( '$cmd' );\n" . 
-            "$_[1]     \$r->match( \@_ );\n" .
+            "$_[1]     \$r->match( \@_[0, 4], {p => 0}, \$_[1] );\n" .
             "$_[1] }\n";
     }
-    if ( $prefix eq q(') ) {   # single quoted literal 
+    if ( $prefix eq q(') ) {   # single quoted literal ' 
         $cmd = substr( $cmd, 1, -1 );
-        return 
-            "$_[1] constant( q($cmd) )\n";
+        return "$_[1] constant( q!$cmd! )\n" unless $cmd =~ /!/;
+        return "$_[1] constant( q($cmd) )\n";
     }
-    if ( $prefix eq q(") ) {   # interpolated literal 
+    if ( $prefix eq q(") ) {   # interpolated literal "
         $cmd = substr( $cmd, 1, -1 );
         warn "<\"...\"> not implemented";
         return;
     }
     if ( $prefix =~ /[-+[]/ ) {   # character class 
-        warn "character classes not implemented";
-        return;
+	   if ( $prefix eq '-' ) {
+	       $cmd = '[^' . substr($cmd, 2);
+	   } 
+       elsif ( $prefix eq '+' ) {
+	       $cmd = substr($cmd, 2);
+	   }
+	   # XXX <[^a]> means [\^a] instead of [^a] in perl5re
+
+	   return "$_[1] perl5( q!$cmd! )\n" unless $cmd =~ /!/;
+	   return "$_[1] perl5( q($cmd) )\n"; # XXX if $cmd eq '!)'
     }
     if ( $prefix eq '?' ) {   # non_capturing_subrule / code assertion
         $cmd = substr( $cmd, 1 );
@@ -241,17 +300,15 @@ sub metasyntax {
         return 
             "$_[1] negate( '$_[0]', \n" .
             call_subrule( $_[0], $_[1]."  " ) .
-            "$_[1] )\n";;
+            "$_[1] )\n";
     }
     if ( $cmd eq '.' ) {
             warn "<$cmd> not implemented";
             return;
     }
     if ( $prefix =~ /[_[:alnum:]]/ ) {  
-        if ( $cmd =~ /^before\s+(.*)/s ) {
-            warn "<before ...> not implemented";
-            return;
-        }
+        # "before" is handled in a separate rule, because it requires compilation
+        # if ( $cmd =~ /^before\s+(.*)/s ) {
         if ( $cmd =~ /^after\s+(.*)/s ) {
             warn "<after ...> not implemented";
             return;
@@ -273,9 +330,13 @@ sub metasyntax {
             return;
         }
         # capturing subrule
-        return 
-            "$_[1] capture( '$cmd', \n" . 
-            call_subrule( $cmd, $_[1]."  " ) . 
+        # <subrule ( param, param ) >
+        my ( $subrule, $param_list ) = split( /[\(\)]/, $cmd );
+        $param_list = '' unless defined $param_list;
+        my @param = split( ',', $param_list );
+        return             
+            "$_[1] capture( '$subrule', \n" . 
+            call_subrule( $subrule, $_[1]."  ", @param ) . 
             "$_[1] )\n";
     }
     die "<$cmd> not implemented";

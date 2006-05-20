@@ -1,6 +1,40 @@
 TODO for Pugs::Compiler::Rule (PCR)
 
+Sigspace switch:
+
+- not implemented
+
+Ratchet switch:
+
+- more tests
+  - interoperability with non-ratchet
+  - non-ratchet subrules need to know current "$pos"
+- quantifiers
+  - implement ?? +? *?
+  - implement ?+ ++ *+
+  - implement captures to Array inside quantifiers
+- is :ratchet allowed as a runtime switch?
+  - are there runtime switches?
+  - is :+ the non-ratchet specifier?
+
+Pos switch:
+
+- test in non-ratchet rules
+
+Perl 6 parser:
+
+- implement Perl 6 minilanguages (and categories).
+  each language generate entries for the tokenizer hash
+  <%statement_control|%prefix|%term>
+- implement the main tokenizer using the minilanguages as terms
+
 Priorities:
+
+- implement <%hash> using trie
+
+- features used in PGE P6 Grammar
+- <after ...> in non-ratchet
+- char classes
 
 - make PadWalker optional, as most distros don't hold PW 1.0
 
@@ -19,24 +53,50 @@ Priorities:
 - make Emitter::Rule::Perl5 subclassable - such that closures can be 
   parsed/compiled by a custom parser
 - make the 'return' block functionally detectable (instead of regex)
+- cleanup any remaining source filtering
 
 Bugs:
 
 - $variable should look into the user pad
 
+- in Pugs::Emitter::Rule::Perl5.pm
+ * <[^a]> should be [\^a]
+ * fix <[!)]>
+
+Categories (some things belong to P::C::Perl6) :
+
+- see "Syntactic categories" in S05 (extensibility)
+
+- finish documenting add_op( %options )
+
+- return AST
+
+- memoize/recompile dynamically
+
+- special cases (test):
+  <tight> <op>+ [<tight> <op>+]* <tight>?
+  1;;;2  - ignore extra ;;?
+  1,,2
+  1, 2,
+  1 Y 2 Y 
+  loop ($a;;$b) { ... } - special form via macro?
+
 Tests:
+
+- unify ratchet/non-ratchet tests
+
+- add categories looser/tighter than current boundaries
 
 - backtracking control ':' 
 
 - <'... <?... <!...
-
-- are subrules backtracking?
 
 - more tests (port from lrep)
   
 Related projects:
 
 - implement (optional?) PCR in pugs
+- implement PCR using pugs
 
 - use PCR in lrep
   - merge the 'dual engine' in PCR (used by the lrep-compiled grammar)
@@ -50,13 +110,10 @@ Other:
 
 - migrate Pugs::Grammar::Rule::Rule compilation to PCR
 
-- cleanup the engine: it is both returning the match, and building the match tree.
+- cleanup the non-ratchet engine: it is both returning the match, and building the match tree.
   There is no need to return the match.
 
 - closures should be called on the Match object
-
-- add a hook for compiling closures (such as pugs or a source filter)
-  - cleanup any remaining source filtering
 
 - rule documentation (shorter than S05)
 - examples of use
@@ -64,18 +121,19 @@ Other:
 - incomplete rule syntax (see Pugs::Compiler::Rule pod); 
 - more escaped chars
 
-- Switches - none so far - all rules have :p set (only match at start of 
-  text) (see Pugs::Compiler::Rule workaround)
+- More switches (:p, :ratchet are implemented)
 
 - 'Pugs::Grammar::Rule' - old p5 code... -- 'use' in P:G:R
 
-- optimization: inline code in the Engine; 
+- optimization: inline code in the non-ratchet Engine; 
 - "pre-generate" engine output?
+- see "benchmark.pl"
 
 - cached precompiled variable rules, per S05
 
-Implementation notes:
+- bug: can only access parameters through $^a $^b...
+- bug: parameters must be constants
+
+API:
 
 - maybe change PCR->code() to PCR->as_method()
-
-- see "Syntactic categories" in S05 (extensibility)
