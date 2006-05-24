@@ -11,6 +11,7 @@ use Data::Dumper;
 $Data::Dumper::Indent = 1;
 
 our $direction = "+";  # XXX make lexical
+our $sigspace = 0;
 
 # XXX - reuse this sub in metasyntax()
 sub call_subrule {
@@ -42,9 +43,10 @@ $_[1] )";
 }
 
 sub emit {
-    my ($grammar, $ast) = @_;
+    my ($grammar, $ast, $param) = @_;
     # runtime parameters: $grammar, $string, $state, $arg_list
     # rule parameters: see Runtime::Rule.pm
+    local $sigspace = $param->{sigspace};   # XXX - $sigspace should be lexical
     return 
         "sub {\n" . 
         "  my \$grammar = \$_[0];\n" .
@@ -54,11 +56,13 @@ sub emit {
         #"  print \"match arg_list = \@{[\%{\$_[1]} ]}\n\" if defined \$_[1];\n" .
         "  \$pos = 0 unless defined \$pos;   # TODO - .*? \$match \n" .
         #"  print \"match pos = \$pos\n\";\n" .
+        "  my \%index;\n" . 
         "  my \@match;\n" .
         "  my \%named;\n" .
         #"  my \$from = \$pos;\n" .
         "  my \$bool = 1;\n" .
         "  my \$capture;\n" .
+        "  my \$quantified;\n" .
         "  my \$m = bless \\{ \n" .
         "    str => \\\$s, from => \\(0+\$pos), to => \\(\$pos), \n" .
         "    bool => \\\$bool, match => \\\@match, named => \\\%named, capture => \\\$capture, \n" .
@@ -90,29 +94,37 @@ sub non_capturing_group {
 sub quant {
     my $term = $_[0]->{'term'};
     my $quantifier = $_[0]->{quant};
+    #print "QUANT: ",Dumper($_[0]);
     $quantifier = '' unless defined $quantifier;
     # TODO: fix grammar to not emit empty quantifier
-    return emit_rule( $term, $_[1] )
+    my $tab = ( $quantifier eq '' ) ? $_[1] : $_[1] . "  ";
+    my $ws = metasyntax( '?ws', $tab );
+    my $ws3 = ( $sigspace && $_[0]->{ws3} ne '' ) ? " &&\n$ws" : '';
+    my $rul = emit_rule( $term, $tab );
+    $rul = "$ws &&\n$rul" if $sigspace && $_[0]->{ws1} ne '';
+    $rul = "$rul &&\n$ws" if $sigspace && $_[0]->{ws2} ne '';
+    #print $rul;
+    return $rul 
         if $quantifier eq '';
-    my $rul = emit_rule( $term, $_[1] . "  " );
     # *  +  ?
     # TODO: *? +? ??
     # TODO: *+ ++ ?+
     # TODO: quantifier + capture creates Array
     return 
-        "$_[1] (\n$rul\n" .
+        "$_[1] do { my \$quantified = 1; (\n$rul\n" .
         "$_[1] ||\n" .
         "$_[1]   1\n" .
-        "$_[1] )"
+        "$_[1] ) }$ws3"
         if $quantifier eq '?';
     return 
-        "$_[1] do { while (\n$rul) {}; 1 }"
+        "$_[1] do { my \$quantified = 1; while (\n$rul) {}; 1 }$ws3"
         if $quantifier eq '*';
     return
+        "$_[1] do { my \$quantified = 1;\n" . 
         "$_[1] (\n$rul\n" .
         "$_[1] &&\n" .
         "$_[1]   do { while (\n$rul) {}; 1 }\n" .
-        "$_[1] )"
+        "$_[1] ) }$ws3"
         if $quantifier eq '+';
     die "quantifier not implemented: $quantifier";
 }        
@@ -235,6 +247,7 @@ sub capturing_group {
 
     $program = emit_rule( $program, $_[1].'      ' )
         if ref( $program );
+    my $rnd = rand;
     return "$_[1] do{ 
 $_[1]     my \$hash = do {
 $_[1]       my \$bool = 1;
@@ -242,22 +255,56 @@ $_[1]       my \$from = \$pos;
 $_[1]       my \@match;
 $_[1]       my \%named;
 $_[1]       my \$capture;
+$_[1]       my \$quantified;
 $_[1]       \$bool = 0 unless
 " .             $program . ";
 $_[1]       { str => \\\$s, from => \\\$from, match => \\\@match, named => \\\%named, bool => \$bool, to => \\(0+\$pos), capture => \\\$capture }
 $_[1]     };
 $_[1]     my \$bool = \$hash->{'bool'};
-$_[1]     push \@match, bless \\\$hash, 'Pugs::Runtime::Match::Ratchet';
+$_[1]     \$index{$rnd} = \$#match+1 unless defined \$index{$rnd};
+$_[1]     if ( \$quantified ) {
+$_[1]       if ( \$bool ) {
+$_[1]         push \@{ \$match[\$index{$rnd}] }, bless \\\$hash, 'Pugs::Runtime::Match::Ratchet';
+$_[1]       }
+$_[1]       else {
+$_[1]         \@{ \$match[\$index{$rnd}] } = () 
+$_[1]           if ! defined \$match[\$index{$rnd}];
+$_[1]       }
+$_[1]     }
+$_[1]     else {
+$_[1]       if ( ! defined \$match[\$index{$rnd}] ) {
+$_[1]         \$match[\$index{$rnd}] = bless \\\$hash, 'Pugs::Runtime::Match::Ratchet';
+$_[1]       }
+$_[1]       elsif ( ref( \$match[\$index{$rnd}] ) ne 'ARRAY' ) {
+$_[1]         \$match[\$index{$rnd}] = [ \$match[\$index{$rnd}], bless \\\$hash, 'Pugs::Runtime::Match::Ratchet' ];
+$_[1]       }
+$_[1]       else {
+$_[1]         push \@{ \$match[\$index{$rnd}] }, bless \\\$hash, 'Pugs::Runtime::Match::Ratchet';
+$_[1]       }
+$_[1]       #unshift \@{ \$match[\$index{$rnd}] } unless \$bool;
+$_[1]     }
 $_[1]     \$bool;
 $_[1] }";
 }        
 sub named_capture {
     my $name    = $_[0]{ident};
     my $program = $_[0]{rule};
+    my $flat    = $_[0]{flat};
     $program = emit_rule( $program, $_[1].'        ' )
         if ref( $program );
     # TODO - repeated captures create an Array
-    return "$_[1] do{ 
+
+    my($try_match, $gen_match, $post_match);
+    if ( $flat ) {
+        $try_match = <<"."
+$_[1]     my \$bool = 1;
+$_[1]     \$bool = 0 unless
+.
+.            $program . ";\n";
+        $gen_match = "\$match[-1]";
+	$post_match = "\$#match--;";
+    } else {
+        $try_match = <<"." ;
 $_[1]     my \$hash = do {
 $_[1]       my \$bool = 1;
 $_[1]       my \$from = \$pos;
@@ -265,11 +312,33 @@ $_[1]       my \@match;
 $_[1]       my \%named;
 $_[1]       my \$capture;
 $_[1]       \$bool = 0 unless
-" .             $program . ";
+$program;
 $_[1]       { str => \\\$s, from => \\\$from, match => \\\@match, named => \\\%named, bool => \$bool, to => \\(0+\$pos), capture => \\\$capture }
 $_[1]     };
 $_[1]     my \$bool = \$hash->{'bool'};
-$_[1]     \$named{'$name'} = bless \\\$hash, 'Pugs::Runtime::Match::Ratchet';
+.
+        $gen_match = "bless \\\$hash, 'Pugs::Runtime::Match::Ratchet'";
+	$post_match = "";
+    }
+
+    return "$_[1] do{ 
+$try_match
+$_[1]     if ( \$bool ) {
+$_[1]       my \$match = $gen_match;
+$_[1]       if ( \$quantified ) {
+$_[1]         \$named{'$name'} = [] if ! defined \$named{'$name'};
+$_[1]         push \@{\$named{'$name'}}, \$match;
+$_[1]       } else {
+$_[1]         if ( ! defined \$named{'$name'} ){
+$_[1]           \$named{'$name'} = \$match;
+$_[1]         } elsif ( ref ( \$named{'$name'} ) ne 'ARRAY' ){
+$_[1]           \$named{'$name'} = [\$named{'$name'}, \$match];
+$_[1]         } else {
+$_[1]           push \@{ \$named{'$name'} }, \$match;
+$_[1]         }
+$_[1]       }
+$_[1]     }
+$_[1]     $post_match
 $_[1]     \$bool;
 $_[1] }";
 }
@@ -395,8 +464,7 @@ sub metasyntax {
 	   }
 	   # XXX <[^a]> means [\^a] instead of [^a] in perl5re
 
-	   return "$_[1] ... perl5( q!$cmd! )\n" unless $cmd =~ /!/;
-	   return "$_[1] ... perl5( q($cmd) )\n"; # XXX if $cmd eq '!)'
+	   return call_perl5($cmd, $_[1]);
     }
     if ( $prefix eq '?' ) {   # non_capturing_subrule / code assertion
         $cmd = substr( $cmd, 1 );
@@ -404,7 +472,13 @@ sub metasyntax {
             warn "code assertion not implemented";
             return;
         }
-        return call_subrule( $cmd, $_[1] );
+        return
+	    "$_[1] do { my \$match =\n" .
+	    call_subrule( $cmd, $_[1] . "          " ) . ";\n" .
+	    "$_[1]      my \$bool = (!\$match != 1);\n" .
+	    "$_[1]      \$pos = \$match->to if \$bool;\n" .
+	    "$_[1]      \$bool;\n" .
+	    "$_[1] }";
     }
     if ( $prefix eq '!' ) {   # negated_subrule / code assertion 
         $cmd = substr( $cmd, 1 );
@@ -463,7 +537,8 @@ $_[1] )";
                 "$_[1]           \$pos = \$match[-1]->to if \$bool;\n" .
                 #"print !\$match[-1], ' ', Dumper \$match[-1];\n" .
                 "$_[1]           \$bool;\n" .
-                "$_[1]         }"
+                "$_[1]         }",
+	      flat => 1
             }, 
             $_[1],    
         );

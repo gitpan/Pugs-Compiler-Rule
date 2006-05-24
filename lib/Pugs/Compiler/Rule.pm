@@ -1,150 +1,22 @@
 package Pugs::Compiler::Rule;
-$Pugs::Compiler::Rule::VERSION = '0.03';
+$Pugs::Compiler::Rule::VERSION = '0.04';
 
 # Documentation in the __END__
 use 5.006;
 use strict;
 use warnings;
 
-use Pugs::Grammar::Base;  # not 'use base'
-use Pugs::Grammar::Rule;
-#use Pugs::Runtime::Rule;
-use Pugs::Runtime::Match;
-use Pugs::Emitter::Rule::Perl5;
-use Pugs::Emitter::Rule::Perl5::Ratchet;
-
-use Data::Dumper;
-
-sub new { $_[0] }
+use base 'Pugs::Compiler::Regex';
 
 sub compile {
-    
-    # $class->compile( $source )
-    # $class->compile( $source, { p=>1 } )
-    # $class->compile( $source, { signature => $sig } ) -- TODO
-
     my ( $class, $rule_source, $param ) = @_;
-
-    my $self = { source => $rule_source };
-
-    # XXX - should use user's lexical pad instead of an explicit grammar?
-    $self->{grammar}  = delete $param->{grammar}  || 
-                        'Pugs::Grammar::Base';
-    $self->{ratchet}  = delete $param->{ratchet}  || 
-                        0;
-    $self->{p}        = delete $param->{pos};
-    $self->{p}        = delete $param->{p}    unless defined $self->{p};
-                        # default = undef;
-    $self->{sigspace} = delete $param->{sigspace} ||
-                        delete $param->{s}        || 
-                        0;
-
-    warn "Error in rule: unknown parameter '$_'" 
-        for keys %$param;
-
-    warn "Error in rule: 'sigspace' not implemented"
-        if $self->{sigspace};
-
-    #print 'rule source: ', $self->{source}, "\n";
-    $self->{ast} = Pugs::Grammar::Rule->rule( 
-        $self->{source} );
-    die "Error in rule: '$rule_source' at: '$self->{ast}{tail}'\n" if $self->{ast}{tail};
-    #print 'rule ast: ', do{use Data::Dumper; Dumper($self->{ast}{capture})};
-
-    if ( $self->{ratchet} ) {
-        $self->{perl5} = Pugs::Emitter::Rule::Perl5::Ratchet::emit( 
-            $self->{grammar}, $self->{ast}{capture} );
-    }
-    else {
-        $self->{perl5} = Pugs::Emitter::Rule::Perl5::emit( 
-            $self->{grammar}, $self->{ast}{capture} );
-    }
-    #print 'rule perl5: ', do{use Data::Dumper; Dumper($self->{perl5})};
-
-    local $@;
-    $self->{code} = eval 
-        $self->{perl5};
-    die "Error in evaluation: $@\nSource:\n$self->{perl5}\n" if $@;
-
-    bless $self, $class;
-}
-
-sub code { 
-    my $rule = shift; 
-    sub { 
-        # XXX - inconsistent parameter order - could just use @_, or use named params
-        my ( $grammar, $str, $flags, $state ) = @_; 
-        $rule->match( $str, $grammar, $flags, $state ); 
-    } 
-}
-
-sub match {
-    my ( $rule, $str, $grammar, $flags, $state ) = @_; 
-    
-    return Pugs::Runtime::Match->new( { bool => 0 } )
-        unless defined $str;   # XXX - fix?
-        
-    $grammar ||= $rule->{grammar};
-    #print "match: grammar $rule->{grammar}, $_[0], $flags\n";
-    #print "match: Variables: ", Dumper ( $flags->{args} ) if defined $flags->{args};
-
-    my $p = defined $flags->{p} 
-            ? $flags->{p} 
-            : $rule->{p};
-
-    if ( defined $p ) {
-        #print "flag p";
-        #print "match: grammar $rule->{grammar}, $str, %$flags\n";
-        #print $rule->{code};
-
-        # XXX BUG! - $rule->{code} disappeared - in t/08-hash.t ???
-        unless ( defined $rule->{code} ) {
-            local $@;
-            $rule->{code} = eval 
-                $rule->{perl5};
-            die "Error in evaluation: $@\nSource:\n$rule->{perl5}\n" if $@;
-        }
-        
-        my %args;
-        %args = %{$flags->{args}} if defined $flags && defined $flags->{args};
-        $args{p} = $p;
-        
-        my $match = $rule->{code}( 
-            $grammar,
-            $str, 
-            $state,
-            \%args,
-        );
-        eval { $$match->{from} = 0 };   # XXX
-        return $match;  
-    }
-
-    foreach my $i (0..length($str)) {
-        my $match = $rule->{code}( 
-            $grammar,
-            substr($str, $i),
-            $state,
-            $flags->{args},
-        );
-        $match or next;   
-        eval { $$match->{from} = $i unless defined $$match->{from} };   # XXX
-        return $match;  
-    }
-    return Pugs::Runtime::Match->new( { bool => 0 } );   # XXX - fix?
-}
-
-sub _str { defined $_[0] ? $_[0] : 'undef' }
-
-sub perl5 {
-    my $self = shift;
-    return "bless {\n" . 
-        "  grammar "  .  "=> q(" . _str( $self->{grammar} )  . "),\n" . 
-        "  ratchet "  .  "=> q(" . _str( $self->{ratchet} )  . "),\n" . 
-        "  p "        .  "=> q(" . _str( $self->{p} )        . "),\n" . 
-        "  sigspace " .  "=> q(" . _str( $self->{sigspace} ) . "),\n" . 
-        "  code "     .  "=> "   . $self->{perl5}    . ",\n" . 
-        "  perl5 "    .  "=> q(" . $self->{perl5}    . "), }, " . 
-        "q(" . __PACKAGE__ . ")";
+    $param = ref $param ? { %$param } : {}; 
+    $param->{ratchet} = 1 
+        unless defined $param->{ratchet};
+    $param->{sigspace} = 1 
+        unless defined $param->{sigspace} ||
+               defined $param->{s};
+    $class->SUPER::compile( $rule_source, $param );   
 }
 
 1;
@@ -196,11 +68,21 @@ to several other modules:
 
 =over 4
 
+* Front-end Modules
+
+=item * L<Pugs::Compiler::Rule> compiles Perl 6 Rules to Perl 5.
+
+=item * L<Pugs::Compiler::Token> compiles Perl 6 Tokens to Perl 5.
+
+=item * L<Pugs::Compiler::Regex> compiles Perl 6 Regexes to Perl 5.
+
 * Runtime Classes
 
 =item * L<Pugs::Runtime::Rule> provides the runtime engine for Rules.
 
 =item * L<Pugs::Runtime::Match> represents a B<Match> object.
+
+=item * L<Pugs::Runtime::Match::Ratchet> represents a B<Match> object matched with C<:ratchet>.
 
 =item * L<Pugs::Runtime::Grammar> represents a B<Grammar> class / object.
 
@@ -215,6 +97,8 @@ to several other modules:
 * Code Emitters
 
 =item * L<Pugs::Emitter::Rule::Perl5> converts parsed Rules to Perl 5 code.
+
+=item * L<Pugs::Emitter::Rule::Perl5::Ratchet> converts parsed :ratchet Rules to Perl 5 code.
 
 =back
 
@@ -294,17 +178,19 @@ options:
 =item * grammar => $class - Specify which namespace (Grammar) the rule 
 belongs to.
 
-=item * ratchet => 1 - Disable backtracking. Match faster.
+=item * ratchet => 1 - Disable backtracking. Match faster. Defaults to 1 in Rules and Tokens.
 
-=item * pos => $pos - Specify a string position to match. Starts in zero.
+=item * pos => $pos - Specify a string position to match. Starts in zero. Defaults to C<undef>.
+
+=item * sigspace => 1 - Whitespace is significant. Defaults to 1 in Rules.
 
 =head2 match (Str $match_against)
 
-Instance method.  Returns a L<Pugs::Runtime::Match> object.
+Instance method.  Returns a L<Pugs::Runtime::Match> object (or L<Pugs::Runtime::Match::Ratchet>).
 
 =head2 perl5
 
-Instance method.  Returns a string that can be eval'ed into a rule object.
+Instance method.  Returns a string that can be eval'ed into a rule/token/regex object.
 
 =head1 CAVEATS
 
