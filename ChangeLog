@@ -1,3 +1,7 @@
+0.06  2006-06-26
+
+- new module Pugs::Grammar::Precedence
+
 0.05  2006-06-13
 
 - fixed internal <alpha> rule

@@ -1,5 +1,5 @@
 package Pugs::Compiler::Rule;
-$Pugs::Compiler::Rule::VERSION = '0.05';
+$Pugs::Compiler::Rule::VERSION = '0.06';
 
 # Documentation in the __END__
 use 5.006;
@@ -75,6 +75,8 @@ to several other modules:
 =item * L<Pugs::Compiler::Token> compiles Perl 6 Tokens to Perl 5.
 
 =item * L<Pugs::Compiler::Regex> compiles Perl 6 Regexes to Perl 5.
+
+=item * L<Pugs::Compiler::RegexPerl5> wraps Perl 5 Regexes to return a B<Match> object.
 
 * Runtime Classes
 
@@ -183,6 +185,8 @@ belongs to.
 =item * pos => $pos - Specify a string position to match. Starts in zero. Defaults to C<undef>.
 
 =item * sigspace => 1 - Whitespace is significant. Defaults to 1 in Rules.
+
+=item * Perl5 => 1 - Use Perl 5 grammar and semantics for Regex.
 
 =head2 match (Str $match_against)
 
