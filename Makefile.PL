@@ -1,12 +1,6 @@
 use strict;
-#use lib '../..', '../../inc';
-#use inc::Module::Install (
-#    -d '../../misc/pX' ? (prefix => '../../inc') : ()
-#);
-use lib '../../../..', '../../../../inc';
-use inc::Module::Install (
-    -d '../../../../misc/pX' ? (prefix => '../../../../inc') : ()
-);
+use inc::Module::Install;
+
 use Cwd qw< abs_path cwd >;
 
 my $cwd = cwd();

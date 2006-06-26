@@ -1,3 +1,7 @@
+0.07  2006-06-26
+
+- updated Module::Install
+
 0.06  2006-06-26
 
 - new module Pugs::Grammar::Precedence
