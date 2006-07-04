@@ -1,5 +1,4 @@
 ChangeLog
-
 inc/Module/Install.pm
 inc/Module/Install/Base.pm
 inc/Module/Install/Can.pm
@@ -8,7 +7,6 @@ inc/Module/Install/Makefile.pm
 inc/Module/Install/Metadata.pm
 inc/Module/Install/Win32.pm
 inc/Module/Install/WriteAll.pm
-
 lib/Pugs/Compiler/Regex.pm
 lib/Pugs/Compiler/RegexPerl5.pm
 lib/Pugs/Compiler/Rule.pm
@@ -25,9 +23,9 @@ lib/Pugs/Runtime/Match.pm
 lib/Pugs/Runtime/Match/Ratchet.pm
 lib/Pugs/Runtime/Rule.p6
 lib/Pugs/Runtime/Rule.pm
-
 Makefile.PL
 MANIFEST
+MANIFEST.SKIP
 META.yml
 README
 t/01-iterator_engine.t
@@ -39,5 +37,4 @@ t/06-subrule.t
 t/08-hash.t
 t/09-ratchet.t
 t/10-regex_perl5.t
-t6/iterator_engine.p6
 TODO
