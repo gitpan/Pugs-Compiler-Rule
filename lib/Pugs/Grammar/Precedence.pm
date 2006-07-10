@@ -7,6 +7,14 @@ use warnings;
 
 use Parse::Yapp;
 
+use Digest::MD5 'md5_hex';
+
+my $cache;
+eval {
+    require Cache::FileCache;
+    $cache = new Cache::FileCache( { 'namespace' => 'v6-precedence' } );
+};
+
 my %relative_precedences = (
     tighter => sub {
         splice( @{$_[0]->{levels}}, $_[1], 0, [ $_[2] ] );
@@ -159,7 +167,8 @@ sub emit_yapp {
                             "        { \$_[0]->{out}= Pugs::Grammar::Precedence::add_to_list( '$op->{name}', \$_[1], \$_[3] ) } \n" ;
                         $s .= 
                             "    |  exp '$op->{name}'    %prec $prec\n" .
-                            "        { \$_[0]->{out}= \$_[1] } \n" ;
+                            "        { \$_[0]->{out}= Pugs::Grammar::Precedence::add_to_list( '$op->{name}', \$_[1], { null => 1 } ) } \n" ;
+                            # "        { \$_[0]->{out}= \$_[1] } \n" ;
                         next;
                     }
                     my $t = $rule_templates{"$op->{fixity}_$op->{assoc}"};
@@ -187,8 +196,18 @@ sub emit_grammar_perl5 {
     my $self = shift;
     my $g = $self->emit_yapp();
     #print $g;
+
+    my $digest = md5_hex($self->{grammar} . $g);
+    my $cached;
+
+    if ($cache && ($cached = $cache->get($digest))) {
+	return $cached;
+    }
+
     my $p = Parse::Yapp->new( input => $g );
-    return $p->Output( classname => $self->{grammar} );
+    $cached = $p->Output( classname => $self->{grammar} );
+    $cache->set($digest, $cached) if $cache;
+    return $cached;
 }
 
 sub exists_op { die "not implemented" };
