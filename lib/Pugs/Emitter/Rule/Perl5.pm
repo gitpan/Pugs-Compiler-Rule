@@ -6,8 +6,8 @@ package Pugs::Emitter::Rule::Perl5;
 
 use strict;
 use warnings;
-use Data::Dumper;
-$Data::Dumper::Indent = 1;
+use Data::Dump::Streamer;
+$Data::Dump::Streamer::Indent = 1;
 
 # XXX - reuse this sub in metasyntax()
 sub call_subrule {
@@ -50,9 +50,9 @@ sub emit {
 sub emit_rule {
     my $n = $_[0];
     my $tab = $_[1] . '  ';
-    die "unknown node: ", Dumper( $n )
+    die "unknown node: ", Dump( $n )
         unless ref( $n ) eq 'HASH';
-    #print "NODE ", Dumper($n);
+    #print "NODE ", Dump($n);
     my ($k) = keys %$n;
     my $v = $$n{$k};
     #my ( $k, $v ) = each %$n;
@@ -227,6 +227,18 @@ sub before {
         "$_[1] before( \n" . 
         emit_rule($program, $_[1]) . 
         "$_[1] )\n";
+}
+sub not_before {
+    warn '<!before ...> not implemented';
+    return;
+}
+sub after {
+    warn '<after ...> not implemented';
+    return;
+}
+sub not_after {
+    warn '<!after ...> not implemented';
+    return;
 }
 sub colon {
     my $str = $_[0];

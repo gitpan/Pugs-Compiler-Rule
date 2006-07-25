@@ -4,22 +4,35 @@ package Pugs::Runtime::Match;
 use 5.006;
 use strict;
 use warnings;
-use Data::Dumper;
+use Data::Dump::Streamer;
+use Class::InsideOut qw( public register id );
 
 use overload (
     '@{}'    => \&array,
     '%{}'    => \&hash,
     'bool'   => \&bool,
     '&{}'    => \&code,
+    '${}'    => \&scalar,
     '""'     => \&flat,
     '0+'     => \&flat,
     fallback => 1,
 );
 
+public data => my %_data;
+
 sub new {
     my ($class, $match) = @_;
-    my $self = \$match;
-    bless $self, $class;
+    my $obj = register( bless \(my $s), $class );
+    $_data{ id $obj } = $match;
+    return $obj;
+}
+
+sub DDS_freeze { 
+    my $str = Data::Dump::Streamer::Dump($_[0]->data)->Out;
+    my $cls = ref($_[0]);
+    $str =~ s/[^=]*=/$cls->new(/;
+    $str =~ s/;/)/;
+    return $str;
 }
 
 # XXX - this sub should set .from and .to in match nodes!
@@ -27,7 +40,7 @@ sub new {
 #       to: .from(); .to(); methods that call ._box_submatch() 
 sub _str {
     my $match = $_[0];
-    #print "STR: ", ref( $match ), " ", Dumper( $match ), "\n";
+    #print "STR: ", ref( $match ), " ", Dump( $match ), "\n";
     return join( '', map { match::str( $_ ) } @$match )
         if ref( $match ) eq 'ARRAY';
     return _str( $match->{match} ) 
@@ -38,14 +51,14 @@ sub _str {
 }
 
 sub from {
-    ${$_[0]}->{from} || 0;
+    $_data{id $_[0]}->{from} || 0;
 }
 
 sub to {
-    #print 'TO: ', do{use Data::Dumper; Dumper(${$_[0]})};
-    #my $str = _str( ${$_[0]} );
+    #print 'TO: ', do{use Data::Dump::Streamer; Dump($_data{id $_[0]})};
+    #my $str = _str( $_data{id $_[0]} );
     #print "TO: $str\n";
-    ${$_[0]}->{to} || ($_[0]->from + length( _str( ${$_[0]} ) ));
+    $_data{id $_[0]}->{to} || ($_[0]->from + length( _str( $_data{id $_[0]} ) ));
 }
 
 sub _box_submatch {
@@ -56,37 +69,43 @@ sub _box_submatch {
 }
 
 sub flat {
-    return '' unless defined ${$_[0]}->{capture};
-    ${$_[0]}->{capture};
+    return '' unless defined $_data{id $_[0]}->{capture};
+    $_data{id $_[0]}->{capture};
 }
 
 # return the capture
 sub code {
-    my $c = ${$_[0]}->{capture};
+    my $c = $_data{id $_[0]}->{capture};
     return sub { $c };
 }
 
 # return the capture
+sub scalar {
+    my $c = $_data{id $_[0]}->{capture};
+    return \$c;
+}
+
+# return the capture
 sub capture {
-    ${$_[0]}->{capture};
+    $_data{id $_[0]}->{capture};
 }
 
 # return the bool value
 sub bool {
-    ${$_[0]}->{bool};
+    $_data{id $_[0]}->{bool};
 }
 
 sub _get_captures {
     my @a;
     # special case: the whole match is a single capture
-    return ${$_[0]} if exists ${$_[0]}->{label};
-    if ( ref( ${$_[0]}->{match} ) eq 'ARRAY' ) {
-        @a = @{${$_[0]}->{match}};
+    return $_data{id $_[0]} if exists $_data{id $_[0]}->{label};
+    if ( ref( $_data{id $_[0]}->{match} ) eq 'ARRAY' ) {
+        @a = @{$_data{id $_[0]}->{match}};
     }
     else {
-        push @a, ${$_[0]}->{match};        
+        push @a, $_data{id $_[0]}->{match};        
     }
-    #print Dumper @a;
+    #print Dump @a;
     while ( ref $a[-1] && exists $a[-1]{match} && ref( $a[-1]{match} ) eq 'ARRAY' ) {
         my $t = pop @a;
         push @a, @{$t->{match}};

@@ -5,7 +5,7 @@ package Pugs::Runtime::Rule;
 use strict;
 use warnings;
 #use Smart::Comments; for debugging, look also at Filtered-Comments.pm
-use Data::Dumper;
+use Data::Dump::Streamer;
 use PadWalker qw( peek_my );  # peek_our ); ???
 
 =pod
@@ -70,7 +70,7 @@ sub alternation {
             ### alternation string to match: "$tail - (node,state)=@$state"
             $match = 
                 $nodes->[ $state->[0] ]->( $tail, $state->[1], $_[2], $_[3]{match}, @_[4,5,6,7] );
-            $match = $$match if ref($match) eq 'Pugs::Runtime::Match';
+            $match = $match->data if ref($match) eq 'Pugs::Runtime::Match';
             ### match: $match
             if ( $match->{state} ) {
                 $state->[1] = $match->{state};
@@ -106,7 +106,7 @@ sub concat {
         while (1) {
             
             $matches[0] = $nodes[0]->( $tail, $state[0], $_[2], $_[3]{match}[0], @_[4,5,6,7] );
-            $matches[0] = ${$matches[0]} if ref($matches[0]) eq 'Pugs::Runtime::Match';
+            $matches[0] = $matches[0]->data if ref($matches[0]) eq 'Pugs::Runtime::Match';
             ### 1st match: $matches[0]
             return $_[3] = $matches[0] 
                 if $matches[0]{abort};
@@ -117,10 +117,10 @@ sub concat {
             }
 
             $_[3]{capture} = $_[3]{match}[0]{capture};
-            #print "Matched concat 0, tree:", Dumper($_[2]);
+            #print "Matched concat 0, tree:", Dump($_[2]);
 
             $matches[1] = $nodes[1]->( $matches[0]{tail}, $state[1], $_[2], $_[3]{match}[1], @_[4,5,6,7] );
-            $matches[1] = ${$matches[1]} if ref($matches[1]) eq 'Pugs::Runtime::Match';
+            $matches[1] = $matches[1]->data if ref($matches[1]) eq 'Pugs::Runtime::Match';
             ### 2nd match: $matches[1]
             if ( ! $matches[1]{abort} ) {
                 # die "not implemented";
@@ -140,7 +140,7 @@ sub concat {
             }
             
             }
-            #print "Matched concat 1, tree:", Dumper($_[2]) if defined $_[2];
+            #print "Matched concat 1, tree:", Dump($_[2]) if defined $_[2];
 
             my $succ;
             if ( ! defined( $matches[1]{state} ) ) {
@@ -168,7 +168,7 @@ sub concat {
             #delete $matches[1]{abort};
             delete $matches[1]{return};
 
-            # print "concat: ",Dumper( $match2 );
+            # print "concat: ",Dump( $match2 );
 
             return $_[3] = $match2;
         }
@@ -224,7 +224,7 @@ sub capture {
     sub {
         $_[3] = { label => $label };
         my $match = $node->( @_[0,1,2], $_[3]{match}, @_[4,5,6,7] );
-        $match = $$match if ref($match) eq 'Pugs::Runtime::Match';
+        $match = $match->data if ref($match) eq 'Pugs::Runtime::Match';
         return unless $match->{bool};
         ## return if $match->{abort}; - maybe a { return }
         my $new_match = { %$match };
@@ -236,7 +236,7 @@ sub capture {
                 my $len = length( $match->{tail} );
                 my $head = $len?substr($_[0], 0, -$len):$_[0];
                 $new_match->{capture} = $head;   # XXX -- array ref not needed
-                #print 'got capture: ',do{use Data::Dumper; Dumper($new_match)};
+                #print 'got capture: ',do{use Data::Dump::Streamer; Dump($new_match)};
             }
             else {
                 $new_match->{capture} = $_[0];
@@ -244,7 +244,7 @@ sub capture {
         }
         $new_match->{match}   = $match ;  # XXX - workaround
 
-        # print "Capturing ", Dumper($_[2]);
+        # print "Capturing ", Dump($_[2]);
 
         return $_[3] = $new_match;
     }
@@ -388,25 +388,25 @@ sub non_greedy_plus {
 # - creates a 'capture', unless it detects a 'return block'
 sub rule_wrapper {
     my ( $str, $match ) = @_;
-    $match = $$match if ref($match) eq 'Pugs::Runtime::Match';
+    $match = $match->data if ref($match) eq 'Pugs::Runtime::Match';
     return unless $match->{bool};
     if ( $match->{return} ) {
-        #warn 'pre-return: ', Dumper( $match );
+        #warn 'pre-return: ', Dump( $match );
         my %match2 = %$match;
         $match2{capture} = $match->{return}( 
             Pugs::Runtime::Match->new( $match ) 
         );
         #warn "return ",ref($match2{capture});
-        #warn 'post-return: ', Dumper( $match2{capture} );
+        #warn 'post-return: ', Dump( $match2{capture} );
         delete $match->{return};
         delete $match->{abort};
         delete $match2{return};
         delete $match2{abort};
-        #warn "Return Object: ", Dumper( \%match2 );
+        #warn "Return Object: ", Dump( \%match2 );
         return \%match2;
     }
     #warn "Return String";
-    # print Dumper( $match );
+    # print Dump( $match );
     my $len = length( $match->{tail} );
     my $head = $len ? substr($str, 0, -$len) : $str;
     $match->{capture} = $head;
@@ -449,7 +449,7 @@ sub _preprocess_hash {
             #print $h->code;
             my $match = $h->match( $_[0], $_[4], { p => 1 } );
             #print "match: ",$match->(),"\n";
-            return $_[3] = $$match;
+            return $_[3] = $match; #->data;
         };
     }
     # fail is number != 1 

@@ -7,28 +7,42 @@ package Pugs::Emitter::Rule::Perl5::Ratchet;
 
 use strict;
 use warnings;
-use Data::Dumper;
-$Data::Dumper::Indent = 1;
+use Data::Dump::Streamer;
+$Data::Dump::Streamer::Indent = 1;
 
 our $direction = "+";  # XXX make lexical
 our $sigspace = 0;
+
+our $count = 1000 + int(rand(1000));
+sub id { 'I' . ($count++) }
 
 # XXX - reuse this sub in metasyntax()
 sub call_subrule {
     my ( $subrule, $tab, @param ) = @_;
     $subrule = "\$grammar->" . $subrule unless $subrule =~ / :: | \. | -> /x;
     $subrule =~ s/\./->/;   # XXX - source filter
+    # print "Subrule: $subrule\n";
     return 
         "$tab     $subrule( \$s, { p => \$pos, args => {" . join(", ",@param) . "} }, \$_[3] )";
 }
 
 sub call_constant {
-    my $const = $_[0];
-    my $len = length( eval "'$const'" );
-    $const = ( $_[0] eq $_ ? "chr(".ord($_).")" : $_[0] )
-        for qw( \ ' );     # '
+    return " 1 # null constant\n"
+        unless length($_[0]);
+    my $len = length( $_[0] );
+    my $const;
+    #print "Const: [$_[0]] ". length($_[0])."\n";
+    if ( $_[0] eq "\\" ) {
+        $const = "chr(".ord("\\").")";
+    }
+    elsif ( $_[0] eq "'" ) {
+        $const = "chr(".ord("'").")"
+    }
+    else {
+        $const = "'$_[0]'"
+    }
     return
-    "$_[1] ( ( substr( \$s, \$pos, $len ) eq '$const' ) 
+    "$_[1] ( ( substr( \$s, \$pos, $len ) eq $const ) 
 $_[1]     ? do { \$pos $direction= $len; 1 }
 $_[1]     : 0
 $_[1] )";
@@ -70,22 +84,22 @@ sub emit {
         "  }, 'Pugs::Runtime::Match::Ratchet';\n" .
         "  \$bool = 0 unless\n" .
         emit_rule( $ast, ' ' ) . ";\n" .
-        "  return \$m;\n" .
+        "  return \$::_V6_MATCH_ = \$m;\n" .
         "}\n";
 }
 
 sub emit_rule {
     my $n = $_[0];
     my $tab = $_[1] . '  ';
-    die "unknown node: ", Dumper( $n )
+    die "unknown node: ", Dump( $n )
         unless ref( $n ) eq 'HASH';
-    #print "NODE ", Dumper($n);
+    #print "NODE ", Dump($n);
     my ($k) = keys %$n;
     my $v = $$n{$k};
     #my ( $k, $v ) = each %$n;
     # XXX - use real references
     no strict 'refs';
-    #print "NODE ", Dumper($k), ", ", Dumper($v);
+    #print "NODE ", Dump($k), ", ", Dump($v);
     my $code = &$k( $v, $tab );
     return $code;
 }
@@ -98,7 +112,7 @@ sub non_capturing_group {
 sub quant {
     my $term = $_[0]->{'term'};
     my $quantifier = $_[0]->{quant};
-    #print "QUANT: ",Dumper($_[0]);
+    #print "QUANT: ",Dump($_[0]);
     $quantifier = '' unless defined $quantifier;
     # TODO: fix grammar to not emit empty quantifier
     my $tab = ( $quantifier eq '' ) ? $_[1] : $_[1] . "  ";
@@ -166,6 +180,25 @@ sub dot {
         "$_[1] do { \$pos >= 0 ? do{ --\$pos; 1 } : 0 }"
     }
 }
+
+sub preprocess_hash {
+    my ( $h, $key ) = ( $_[0]->{hash}, $_[0]->{key} );
+    # returns AST depending on $h
+    if ( ref( $h->{$key} ) eq 'CODE') {
+        return " do { \$hash->{'$key'}->(); 1; } ";
+    } 
+    if ( ref( $h->{$key} ) =~ /Pugs::Compiler::/ ) {
+        return " return \$hash->{'$key'}->match( \$s, \$grammar, { p => \$pos } ) ";
+    }
+    # fail is number != 1 
+    if ( $h->{$key} =~ /^(\d+)$/ ) {
+        return " 0 " unless $1 == 1;
+        return " 1 " ;
+    }
+    # subrule
+    return " do { warn \"uncompiled subrule: $h->{$key} - not implemented \" } ";
+}
+
 sub variable {
     my $name = "$_[0]";
     my $value = undef;
@@ -194,9 +227,40 @@ sub variable {
     
     $value = join('', eval $name) if $name =~ /^\@/;
     if ( $name =~ /^%/ ) {
-        # XXX - runtime or compile-time interpolation?
-        return "$_[1] ... hash( \\$name )\n" if $name =~ /::/;
-        return "$_[1] ... hash( get_variable( '$name' ) )\n";
+        my $id = '$' . id();
+        my $code = "
+          do {
+            our $id;
+            unless ( $id ) {
+                my \$hash = " . 
+                ( $name =~ /::/ 
+                    ? "\\$name" 
+                    : "Pugs::Runtime::Rule::get_variable( '$name' )"
+                ) . 
+                ";
+                my \$ast = {
+                    alt => [
+                        map  {{ 
+                            concat => [
+                                { constant => \$_ },
+                                { preprocess_hash => { hash => \$hash, key => \$_ }, },
+                            ] }}
+                        sort { length \$b <=> length \$a } keys \%\$hash
+                    ]
+                };
+                #print 'ast: ', Data::Dump::Streamer::Dump( \$ast );
+                my \$code = Pugs::Emitter::Rule::Perl5::Ratchet::emit( \$grammar, \$ast );
+                #print 'code: ', \$code;
+                $id = eval \$code;
+            }
+            my \$match = $id->( \$grammar, \$s, { p => \$pos, args => {} }, \$_[3] );
+            my \$bool = (!\$match != 1);
+            \$pos = \$match->to if \$bool;
+            #print !\$match[-1], ' ', Dump \$match[-1];
+            \$bool;
+          }";
+        #print $code;
+        return $code;
     }
     die "interpolation of $name not implemented"
         unless defined $value;
@@ -209,7 +273,6 @@ sub special_char {
         return call_perl5(   "\\$_",  $_[1] ) if $char eq $_;
         return call_perl5( "[^\\$_]", $_[1] ) if $char eq uc($_);
     }
-    $char = '\\\\' if $char eq '\\';
     return call_constant( $char, $_[1] );
 }
 sub match_variable {
@@ -226,6 +289,26 @@ sub match_variable {
 }
 sub closure {
     my $code = $_[0]; 
+    
+    if ( ref( $code ) ) {
+        if ( defined $Pugs::Compiler::Perl6::VERSION ) {
+            # perl6 compiler is loaded
+            my $perl5 = Pugs::Emitter::Perl6::Perl5::emit( 'grammar', $code, 'self' );
+            return 
+                "do { 
+                    \$::_V6_MATCH_ = \$m; 
+                    \$capture = sub { $perl5 }->();
+                    \$bool = 1;
+                    return \$m;
+                }" if $perl5 =~ /return/;
+            return 
+                "do { 
+                    \$::_V6_MATCH_ = \$m; 
+                    sub { $perl5 }->();
+                    1;
+                }";
+        }        
+    }
     
     # XXX XXX XXX - source-filter - temporary hacks to translate p6 to p5
     # $()<name>
@@ -251,7 +334,7 @@ sub capturing_group {
 
     $program = emit_rule( $program, $_[1].'      ' )
         if ref( $program );
-    my $rnd = rand;
+    my $rnd = id();
     return "$_[1] do{ 
 $_[1]     my \$hash = do {
 $_[1]       my \$bool = 1;
@@ -306,7 +389,7 @@ $_[1]     \$bool = 0 unless
 .
 .            $program . ";\n";
         $gen_match = "\$match[-1]";
-	$post_match = "\$#match--;";
+        $post_match = "\$#match--;";
     } else {
         $try_match = <<"." ;
 $_[1]     my \$hash = do {
@@ -322,7 +405,7 @@ $_[1]     };
 $_[1]     my \$bool = \${\$hash->{'bool'}};
 .
         $gen_match = "bless \\\$hash, 'Pugs::Runtime::Match::Ratchet'";
-	$post_match = "";
+        $post_match = "";
     }
 
     return "$_[1] do{ 
@@ -346,6 +429,23 @@ $_[1]     $post_match
 $_[1]     \$bool;
 $_[1] }";
 }
+sub negate {
+    my $program = $_[0]{rule};
+    $program = emit_rule( $program, $_[1].'        ' )
+        if ref( $program );
+    return "$_[1] do{ 
+$_[1]     my \$pos1 = \$pos;
+$_[1]     do {
+$_[1]       my \$pos = \$pos1;
+$_[1]       my \$from = \$pos;
+$_[1]       my \@match;
+$_[1]       my \%named;
+$_[1]       my \$capture;
+$_[1]       \$bool = " . $program . " ? 0 : 1;
+$_[1]       \$bool;
+$_[1]     };
+$_[1] }";
+}
 sub before {
     my $program = $_[0]{rule};
     $program = emit_rule( $program, $_[1].'        ' )
@@ -363,6 +463,10 @@ $_[1]       \$bool = 0 unless
 $_[1]       \$bool;
 $_[1]     };
 $_[1] }";
+}
+sub not_before {
+    warn '<!before ...> not implemented';
+    return;
 }
 sub after {
     local $direction = "-";
@@ -382,6 +486,10 @@ $_[1]       \$bool = 0 unless
 $_[1]       \$bool;
 $_[1]     };
 $_[1] }";
+}
+sub not_after {
+    warn '<!after ...> not implemented';
+    return;
 }
 sub colon {
     my $str = $_[0];
@@ -471,15 +579,15 @@ sub metasyntax {
         return;
     }
     if ( $prefix =~ /[-+[]/ ) {   # character class 
-	   if ( $prefix eq '-' ) {
-	       $cmd = '[^' . substr($cmd, 2);
-	   } 
-       elsif ( $prefix eq '+' ) {
-	       $cmd = substr($cmd, 2);
-	   }
-	   # XXX <[^a]> means [\^a] instead of [^a] in perl5re
-
-	   return call_perl5($cmd, $_[1]);
+        if ( $prefix eq '-' ) {
+               $cmd = '[^' . substr($cmd, 2);
+        } 
+        elsif ( $prefix eq '+' ) {
+               $cmd = substr($cmd, 2);
+        }
+        # XXX <[^a]> means [\^a] instead of [^a] in perl5re
+        $cmd =~ s/\.\./-/g;    # <[1..4]> -> [1-4]
+        return call_perl5($cmd, $_[1]);
     }
     if ( $prefix eq '?' ) {   # non_capturing_subrule / code assertion
         $cmd = substr( $cmd, 1 );
@@ -488,12 +596,12 @@ sub metasyntax {
             return;
         }
         return
-	    "$_[1] do { my \$match =\n" .
-	    call_subrule( $cmd, $_[1] . "          " ) . ";\n" .
-	    "$_[1]      my \$bool = (!\$match != 1);\n" .
-	    "$_[1]      \$pos = \$match->to if \$bool;\n" .
-	    "$_[1]      \$bool;\n" .
-	    "$_[1] }";
+            "$_[1] do { my \$match =\n" .
+            call_subrule( $cmd, $_[1] . "          " ) . ";\n" .
+            "$_[1]      my \$bool = (!\$match != 1);\n" .
+            "$_[1]      \$pos = \$match->to if \$bool;\n" .
+            "$_[1]      \$bool;\n" .
+            "$_[1] }";
     }
     if ( $prefix eq '!' ) {   # negated_subrule / code assertion 
         $cmd = substr( $cmd, 1 );
@@ -550,10 +658,10 @@ $_[1] )";
                     call_subrule( $subrule, $_[1]."        ", @param ) . ";\n" .
                 "$_[1]           my \$bool = (!\$match[-1] != 1);\n" .
                 "$_[1]           \$pos = \$match[-1]->to if \$bool;\n" .
-                #"print !\$match[-1], ' ', Dumper \$match[-1];\n" .
+                #"print !\$match[-1], ' ', Dump \$match[-1];\n" .
                 "$_[1]           \$bool;\n" .
                 "$_[1]         }",
-	      flat => 1
+              flat => 1
             }, 
             $_[1],    
         );

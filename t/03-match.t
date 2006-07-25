@@ -1,6 +1,6 @@
 
 use Test::More tests => 46;
-use Data::Dumper;
+use Data::Dump::Streamer;
 
 use_ok( 'Pugs::Compiler::Regex' );
 
@@ -43,9 +43,9 @@ use_ok( 'Pugs::Compiler::Regex' );
 {
     my $rule = Pugs::Compiler::Regex->compile( '((.).)(.)' );
     my $match = $rule->match( "xyzw" );
-    #print "Match: ", do{use Data::Dumper; Dumper($match)};
+    #print "Match: ", do{use Data::Dump::Streamer; Dump($match)};
     is( "$match", "xyz", 'stringify 1' );
-    is( $match->(), "xyz", 'stringify 1' );
+    is( $$match, "xyz", 'stringify 1' );
     is( "$match->[0]", "xy", 'stringify 2' );
     is( "$match->[0][0]", "x", 'stringify 3' );
 }
@@ -78,7 +78,7 @@ use_ok( 'Pugs::Compiler::Regex' );
     my $rule = Pugs::Compiler::Regex->compile( '$<z> := (.) { return { x => { %{$_[0]} } ,} } ' );
     my $match = $rule->match( "abc" );
     ok( $match, 'true match' );
-    my $ret = $match->();
+    my $ret = $$match;
     is( $ret->{x}{z}, "a", 'returns correct struct' );
 }
 
@@ -86,7 +86,7 @@ use_ok( 'Pugs::Compiler::Regex' );
     my $rule = Pugs::Compiler::Regex->compile( '$<z> := [.] { return { x => { %{$_[0]} } ,} } ' );
     my $match = $rule->match( "abc" );
     ok( $match, 'true match' );
-    my $ret = $match->();
+    my $ret = $$match;
     is( $ret->{x}{z}, "a", 'returns correct struct' );
 }
 
@@ -94,15 +94,15 @@ use_ok( 'Pugs::Compiler::Regex' );
     my $rule = Pugs::Compiler::Regex->compile( '$<z> := <any> { return { x => { %{$_[0]} } ,} } ' );
     my $match = $rule->match( "abc" );
     ok( $match, 'true match' );
-    my $ret = $match->();
+    my $ret = $$match;
     is( $ret->{x}{z}, "a", 'returns correct struct' );
 }
 
 {
     my $rule = Pugs::Compiler::Regex->compile( '$<x> := (.)  $<y> := (.)');
-    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Source: ", do{use Data::Dump::Streamer; Dump($rule->{perl5})};
     my $match = $rule->match( "123" );
-    #print "Match: ", do{use Data::Dumper; Dumper($match)};
+    #print "Match: ", do{use Data::Dump::Streamer; Dump($match)};
     my $ret = { x => '1', y => '2' };
     is_deeply( {%$match}, $ret, 'return match' );
     is( "$match", "12", 'stringify' );

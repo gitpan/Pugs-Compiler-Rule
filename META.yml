@@ -9,7 +9,9 @@ no_index:
     - inc
     - t
 requires:
+  Class::InsideOut: 0
+  Data::Dump::Streamer: 0
   PadWalker: 1.0
   Parse::Yapp: 0
   perl: 5.6.0
-version: 0.11
+version: 0.12
