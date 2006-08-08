@@ -10,6 +10,9 @@ our %perl6_name = (
     '$^O'           => '$*OS',  
     '$$'            => '$*PID',  
     '$0'            => '$*EXECUTABLE_NAME',  
+    '$0'            => '$*PROGRAM_NAME',
+    
+    '\\*STDERR'     => '$*ERR',  
 
     '__FILE__'      => '$?FILE',
     
