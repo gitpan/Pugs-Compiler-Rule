@@ -97,10 +97,12 @@ sub emit {
         "      bool => \\\$bool, match => \\\@match, named => \\\%named, capture => undef, \n" .
         "    } );\n" .
         "    \$bool = 0 unless\n" .
+        #"      do { TAILCALL: ;\n" .
         emit_rule( $ast, '   ' ) . ";\n" .
-
+        #"      }\n" .
         "    last if \$m;\n" .
         "  }\n" .  # /for
+        "  \$::_V6_MATCH_ = \$m; \n" .
         "  return \$m;\n" .
         "}\n";
 }
@@ -376,6 +378,7 @@ sub closure {
                     local \$::_V6_SUCCEED = 1;
                     \$m->data->{capture} = \\( sub { $perl5 }->() );
                     \$bool = \$::_V6_SUCCEED;
+                    \$::_V6_MATCH_ = \$m if \$bool; 
                     return \$m if \$bool;
                 }" if $perl5 =~ /return/;
             return 
@@ -390,13 +393,13 @@ sub closure {
 
     # XXX XXX XXX - source-filter - temporary hacks to translate p6 to p5
     # $()<name>
-    $code =~ s/ ([^']) \$ \( \) < (.*?) > /$1 \$_[0]->[$2] /sgx;
+    $code =~ s/ ([^']) \$ \( \) < (.*?) > /$1\$_[0]->[$2]/sgx;
     # $<name>
-    $code =~ s/ ([^']) \$ < (.*?) > /$1 \$_[0]->{$2} /sgx;
+    $code =~ s/ ([^']) \$ < (.*?) > /$1\$_[0]->{named}->{$2}/sgx;
     # $()
-    $code =~ s/ ([^']) \$ \( \) /$1 \$_[0]->() /sgx;
+    $code =~ s/ ([^']) \$ \( \) /$1\$_[0]->()/sgx;
     # $/
-    $code =~ s/ ([^']) \$ \/ /$1 \$_[0] /sgx;
+    $code =~ s/ ([^']) \$ \/ /$1\$_[0]/sgx;
     #print "Code: $code\n";
     
     return 
@@ -412,6 +415,7 @@ sub closure {
         "$_[1]   local \$::_V6_SUCCEED = 1;\n" .
         "$_[1]   \$m->data->{capture} = \\( sub $code->( \$m ) ); \n" .
         "$_[1]   \$bool = \$::_V6_SUCCEED;\n" .
+        "$_[1]   \$::_V6_MATCH_ = \$m if \$bool; \n" .
         "$_[1]   return \$m if \$bool; \n" .
         "$_[1] }";
 
@@ -591,7 +595,7 @@ sub not_after {
 }
 sub colon {
     my $str = $_[0];
-    return "$_[1] # : no-op\n"
+    return "$_[1] 1 # : no-op\n"
         if $str eq ':';
     return "$_[1] ( \$pos >= length( \$s ) ) \n" 
         if $str eq '$';
@@ -710,15 +714,15 @@ sub metasyntax {
         return;
     }
     if ( $prefix =~ /[-+[]/ ) {   # character class 
-           if ( $prefix eq '-' ) {
-               $cmd = '[^' . substr($cmd, 2);
-           } 
-       elsif ( $prefix eq '+' ) {
-               $cmd = substr($cmd, 2);
-           }
-           # XXX <[^a]> means [\^a] instead of [^a] in perl5re
-
-           return call_perl5($cmd, $_[1]);
+        $cmd =~ s/\.\./-/g;
+        if ( $prefix eq '-' ) {
+           $cmd = '[^' . substr($cmd, 2);
+        } 
+        elsif ( $prefix eq '+' ) {
+           $cmd = substr($cmd, 2);
+        }
+        # XXX <[^a]> means [\^a] instead of [^a] in perl5re
+        return call_perl5($cmd, $_[1]);
     }
     if ( $prefix eq '?' ) {   # non_capturing_subrule / code assertion
         $cmd = substr( $cmd, 1 );
@@ -751,6 +755,10 @@ sub metasyntax {
     }
     if ( $prefix =~ /[_[:alnum:]]/ ) {  
         # "before" and "after" are handled in a separate rule
+        #if ( $cmd eq 'redo' ) {
+        #    # tailcall - this is an unauthorized extension
+        #    "$_[1]      goto TAILCALL;\n";
+        #}
         if ( $cmd eq 'cut' ) {
             warn "<$cmd> not implemented";
             return;
