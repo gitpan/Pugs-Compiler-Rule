@@ -1,5 +1,5 @@
 
-use Test::More tests => 107;
+use Test::More tests => 116;
 use Data::Dumper;
 $Data::Dumper::Indent = 1;
 
@@ -647,7 +647,14 @@ use Pugs::Runtime::Match; # overload doesn't work without this ???
     my %test = (
         if =>    2,        # fail (number, not '1')
         iff =>   1,        # match (longer than 'if')
-        until => Pugs::Compiler::Token->compile('(a.a) { return 42 } '),  
+        until => Pugs::Compiler::Token->compile('
+            (a.a) 
+            { 
+                print " # KEY = $::_V6_MATCH_->{KEY} \n";
+                # print " # ", Dumper( $::_V6_MATCH_->data );
+                return 42;
+            } 
+        '),  
                            # subrule - match "until(aa)"
         use =>   sub { $v = 1 },   
                            # closure - print "use()"
@@ -697,4 +704,100 @@ TODO:
     #print $rule1->perl5;
     $match = $rule1->match("rule1xxrule2abcyy123");
     is($match,'rule1xxrule2abcyy123',"Matched hash inside hash");
+}
+
+{
+    my $rule = Pugs::Compiler::Rule->compile( q(
+        <'>>'> 
+    ) );
+    #print $rule->perl;
+    #print Dumper( Pugs::Grammar::Rule->rule( " <'>>'> " )->() );
+    my $match = $rule->match( "abc>>zzz" );
+    is( "$match", ">>", 'literal ">"' );
+}
+
+{
+    my $rule = Pugs::Compiler::Rule->compile( q(
+        <'::'> 
+    ) );
+    #print $rule->perl;
+    my $match = $rule->match( "abc::zzz" );
+    is( "$match", "::", 'literal ":"' );
+}
+
+{
+    my $rule = Pugs::Compiler::Rule->compile( q(
+        <'}'> 
+    ) );
+    #print $rule->perl;
+    my $match = $rule->match( "abc}zzz" );
+    is( "$match", "}", 'literal "}"' );
+}
+
+{
+    my $rule = Pugs::Compiler::Rule->compile( q^
+        <')'> 
+    ^ );
+    #print $rule->perl;
+    my $match = $rule->match( "abc)zzz" );
+    is( "$match", ")", 'literal ")"' );
+}
+
+{
+    my $rule = Pugs::Compiler::Token->compile( q(
+        (a)
+        [
+        |  (a) x b c 
+        |  (a) x x y
+        ]
+    ) );
+    #print $rule->perl;
+    my $match = $rule->match( "aaxxy" );
+    #print Dumper( $match );
+    my @a = @{$match};
+    is( scalar @a, 2, 'alternation array rollback' );
+}
+
+{
+    my $rule = Pugs::Compiler::Token->compile( q(
+        [
+        |  <alpha> x b c 
+        |  <alpha> x x y
+        ]
+    ) );
+    #print $rule->perl;
+    my $match = $rule->match( "aaxxy" );
+    #print Dumper( $match );
+    my %h = %{$match};
+    is( scalar keys %h, 1, 'alternation hash rollback' );
+}
+
+TODO:
+{
+    local $TODO = "failing <alpha> capture";
+
+    my $rule = Pugs::Compiler::Token->compile( q(
+        <alpha>
+        [
+        |  <alpha> x b c 
+        |  <alpha> x x y
+        ]
+    ) );
+    #print $rule->perl;
+    my $match = $rule->match( "aaxxy" );
+    #print Dumper( $match );
+    my %h = %{$match};
+    is( scalar keys %h, 2, 'alternation hash rollback with multiple captures' );
+}
+
+{
+    my $rule = Pugs::Compiler::Token->compile( q(
+        <?alpha>
+    ) );
+    #print $rule->perl;
+    my $match = $rule->match( "aaxxy" );
+    #print Dumper( $match );
+    is( ${$match}, 'a', 'non-capturing char class' );
+    my %h = %{$match};
+    is( scalar keys %h, 0, 'non-capturing char class' );
 }
