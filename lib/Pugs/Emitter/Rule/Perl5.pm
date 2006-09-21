@@ -4,8 +4,6 @@ use Pugs::Emitter::Rule::Perl5::Ratchet;
 
 # p6-rule perl5 emitter
 
-# XXX - cleanup unused nodes
-
 use strict;
 use warnings;
 use Data::Dumper;
@@ -15,19 +13,23 @@ our $capture_count;
 our $capture_to_array;
 our %capture_seen;
 
-# XXX - reuse this sub in metasyntax()
 sub call_subrule {
     my ( $subrule, $tab, @param ) = @_;
     $subrule = "\$_[4]->" . $subrule unless $subrule =~ / :: | \. | -> /x;
     $subrule =~ s/\./->/;   # XXX - source filter
 
+    push @param, 1 if @param == 1;  # odd number of elements in hash
+    #print "PARAM: ",Dumper(@param);
+
     return 
-        "$tab sub{ \n" .
-        #"$tab     print \"param: \",Dumper( \@_ );\n" .
-        "$tab     my \$param = { \%{ \$_[7] || {} }, args => {" . join(", ",@param) . "} };\n" .
-        "$tab     \$_[3] = $subrule( \$_[0], \$param, \$_[3],  );\n" .
-        #"$tab     print \"subrule match: \",Dumper(\$_[3]->data);\n" .
-        "$tab }\n";
+"$tab sub{ 
+$tab     my \$prior = \$::_V6_PRIOR_;
+$tab     my \$param = { \%{ \$_[7] || {} }, args => {" . 
+            join(", ",@param) . "} };
+$tab     \$_[3] = $subrule( \$_[0], \$param, \$_[3],  );
+$tab     \$::_V6_PRIOR_ = \$prior;
+$tab }
+";
 }
 
 sub emit {
@@ -38,45 +40,40 @@ sub emit {
     local $capture_to_array = 0;
     local %capture_seen = ();
     #print "emit capture_to_array $capture_to_array\n";
-    
     # print "emit: ", Dumper($ast);
     
     return 
-        "do {\n" .
-        "    package Pugs::Runtime::Regex;\n" .
-        #"    use Pugs::Grammar::RegexBase;\n" .
-        "    my \$matcher = \n" . 
-        emit_rule( $ast, '    ' ) . "  ;\n" .
-        "  sub {\n" . 
+"do {
+  package Pugs::Runtime::Regex;
+  my \$matcher = \n" . emit_rule( $ast, '    ' ) . ";
+  my \$rule; 
+  \$rule = sub {" . 
         # grammar, string, state, args
         #"    print \"match args: \",Dumper(\@_);\n" .
-        "    my \$tree;\n" .
-        "    if ( defined \$_[3]{p} ) {\n" .
-        "        \$matcher->( \$_[1], \$_[2], \$tree, \$tree, \$_[0], \$_[3]{p}, \$_[1], \$_[3] );\n" .
-        "    }\n" .
-        "    else {\n" .
-
-        "        for my \$pos ( 0 .. length( \$_[1] ) - 1 ) {\n" .
-        "            my \$param = { \%{\$_[3]}, p => \$pos };\n" .           
-        "            \$matcher->( \$_[1], \$_[2], \$tree, \$tree, \$_[0], \$pos, \$_[1], \$param );\n" .
-
-        "            last if \$tree;\n" .
-        "        }\n" .
-        "        \$tree = Pugs::Grammar::RegexBase->no_match(\@_)\n" . 
-        "           unless defined \$tree;
-;\n" .
-        "    }\n" .
-        # "    print \"match: \",Dumper(\$tree->data);\n" .
-        "    my \$cap = \$tree->data->{capture};\n" .
-        "    if ( ref \$cap eq 'CODE' ) { \n" .
-
-        "        \$::_V6_MATCH_ = \$tree;\n" .
-        "        \$tree->data->{capture} = \\(\$cap->( \$tree ));\n" .
-
-        "    };\n" .
-        "    return \$tree;\n" .
-        "  }\n" .
-        "}\n";
+        "
+    my \$tree;
+    if ( defined \$_[3]{p} ) {
+      \$matcher->( \$_[1], \$_[2], \$tree, \$tree, \$_[0], \$_[3]{p}, \$_[1], \$_[3] );
+    }
+    else {
+      for my \$pos ( 0 .. length( \$_[1] ) - 1 ) {
+        my \$param = { \%{\$_[3]}, p => \$pos };
+        \$matcher->( \$_[1], \$_[2], \$tree, \$tree, \$_[0], \$pos, \$_[1], \$param );
+        last if \$tree;
+      }
+      \$tree = Pugs::Grammar::Base->no_match(\@_)
+        unless defined \$tree;
+    }
+    my \$cap = \$tree->data->{capture};
+    if ( ref \$cap eq 'CODE' ) {
+      \$::_V6_MATCH_ = \$tree;
+      \$tree->data->{capture} = \\(\$cap->( \$tree ));
+    };
+    if ( \$tree ) { \$::_V6_PRIOR_ = \$rule }
+    return \$tree;
+  }
+}
+";
 }
 
 sub emit_rule {
@@ -87,7 +84,6 @@ sub emit_rule {
     #print "NODE ", Dumper($n);
     my ($k) = keys %$n;
     my $v = $$n{$k};
-    #my ( $k, $v ) = each %$n;
     # XXX - use real references
     no strict 'refs';
     my $code = &$k( $v, $tab );
@@ -114,8 +110,25 @@ sub capturing_group {
         ( $capture_to_array || ( $capture_seen{$capture_count} > 1 ? 1 : 0 ) ) .  
         ", \n" .
         $program . 
-        "$_[1] )\n" .
-        '';
+        "$_[1] )\n";
+}        
+sub capture_as_result {
+    my $program = $_[0];
+    
+    $capture_count++;
+    {
+        $capture_seen{$capture_count}++;
+        local $capture_count = -1;
+        local $capture_to_array = 0;
+        local %capture_seen = ();
+        $program = emit_rule( $program, $_[1].'      ' )
+            if ref( $program );
+    }
+    
+    return 
+        "$_[1] capture_as_result( \n" .
+        $program . 
+        "$_[1] )\n";
 }        
 sub non_capturing_group {
     return emit_rule( $_[0], $_[1] );
@@ -336,12 +349,21 @@ sub closure {
 }
 sub named_capture {
     my $name    = $_[0]{ident};
+    $name = $name->{match_variable} if ref($name) eq 'HASH';
+    $name =~ s/^[\$\@\%]//;  # TODO - change semantics as needed
     my $program = $_[0]{rule};
     $capture_seen{$name}++;
     return 
         "$_[1] named( '$name', " .
         ( $capture_to_array || ( $capture_seen{$name} > 1 ? 1 : 0 ) ) .  
         ", \n" .
+        emit_rule($program, $_[1]) . 
+        "$_[1] )\n";
+}
+sub negate {
+    my $program = $_[0]{rule};
+    return 
+        "$_[1] negate( \n" . 
         emit_rule($program, $_[1]) . 
         "$_[1] )\n";
 }
@@ -354,11 +376,21 @@ sub before {
 }
 sub colon {
     my $str = $_[0];
+    return "$_[1] at_start() \n"
+        if $str eq '^';
     return "$_[1] alternation( [ null(), failed_abort() ] ) \n"
         if $str eq ':';
-    return "$_[1] end_of_string() \n" 
+    return "$_[1] at_end_of_string() \n" 
         if $str eq '$';
+    return "$_[1] at_line_start() \n"
+        if $str eq '^^';
+    return "$_[1] at_line_end() \n"
+        if $str eq '$$';
     die "'$str' not implemented";
+}
+sub modifier {
+    my $str = $_[0];
+    die "modifier '$str' not implemented";
 }
 sub constant {
     my $char = $_[0] eq '\\' ? '\\\\' : $_[0];
@@ -435,28 +467,7 @@ sub metasyntax {
         }
         return call_subrule( $cmd, $_[1] );
     }
-    if ( $prefix eq '!' ) {   # negated_subrule / code assertion 
-        $cmd = substr( $cmd, 1 );
-        if ( $cmd =~ /^{/ ) {
-            warn "code assertion not implemented";
-            return;
-        }
-        return 
-            "$_[1] negate( '$_[0]', \n" .
-            call_subrule( $_[0], $_[1]."  " ) .
-            "$_[1] )\n";
-    }
-    if ( $cmd eq '.' ) {
-            warn "<$cmd> not implemented";
-            return;
-    }
-    if ( $prefix =~ /[_[:alnum:]]/ ) {  
-        # "before" is handled in a separate rule, because it requires compilation
-        # if ( $cmd =~ /^before\s+(.*)/s ) {
-        if ( $cmd =~ /^after\s+(.*)/s ) {
-            warn "<after ...> not implemented";
-            return;
-        }
+    if ( $prefix =~ /[_[:alnum:]]/ ) {
         if ( $cmd eq 'cut' ) {
             warn "<$cmd> not implemented";
             return;
@@ -464,15 +475,7 @@ sub metasyntax {
         if ( $cmd eq 'commit' ) {
             warn "<$cmd> not implemented";
             return;
-        }
-        if ( $cmd eq 'prior' ) {
-            warn "<$cmd> not implemented";
-            return;
-        }
-        if ( $cmd eq 'null' ) {
-            warn "<$cmd> not implemented";
-            return;
-        }
+        }        
         # capturing subrule
         # <subrule ( param, param ) >
         my ( $name, $param_list ) = split( /[\(\)]/, $cmd );
@@ -487,6 +490,12 @@ sub metasyntax {
             ", \n" .
             call_subrule( $name, $_[1]."  ", @param ) . 
             "$_[1] )\n";
+    }
+    if ( $prefix eq '.' ) {  
+        my ( $method, $param_list ) = split( /[\(\)]/, $cmd );
+        $method =~ s/^\.//;
+        $param_list ||= '';
+        return "$_[1] try_method( '$method', '$param_list' ) ";
     }
     die "<$cmd> not implemented";
 }

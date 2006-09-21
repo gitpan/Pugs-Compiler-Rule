@@ -1,4 +1,13 @@
 
+0.18  2006-09-21
+
+- implemented capturing to return object with <(...)>
+- implemented Matching against non-strings
+   my $rule = Pugs::Compiler::Regex->compile( '<.meth("param")>' );
+   my $match = $rule->match( $object );- implemented <at($pos)>
+- implemented <at($pos)>
+- fixed '^' and '$' in regexes
+
 0.17  2006-09-13
 
 - Grammar::Rule is now bootstrapped with v6.pm, instead of lrep

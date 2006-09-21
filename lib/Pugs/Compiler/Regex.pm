@@ -51,9 +51,11 @@ sub compile {
     $self->{p}        = delete $param->{pos}      ||
                         delete $param->{p};
                         # default = undef;
+    delete $param->{p};
     $self->{sigspace} = delete $param->{sigspace} ||
                         delete $param->{s}        || 
                         0;
+    delete $param->{s};
 
     warn "Error in rule: unknown parameter '$_'" 
         for keys %$param;
@@ -75,6 +77,10 @@ sub compile {
         #print "ast: ",Dumper($ast),"\n";
         #die "Error in rule: '$rule_source' at: '$ast->tail'\n" if $ast->tail;
         #print 'rule ast: ', do{use Data::Dumper; Dumper($ast{capture})};
+
+        #use Pugs::Emitter::Rule::Perl5::Preprocess;
+        #my $ast2 = Pugs::Emitter::Rule::Perl5::Preprocess::emit( 
+        #         $self->{grammar}, $ast, $self );
 
         if ( $self->{ratchet} ) {
             $self->{perl5} = Pugs::Emitter::Rule::Perl5::Ratchet::emit( 
@@ -168,6 +174,18 @@ sub match {
         );
         #print __PACKAGE__ . ": match result: ", $match->perl;
         return $match;  
+}
+
+sub reinstall {
+  my($class, $name, @etc) = @_;
+
+  ## XXX - code duplication with "install" below
+  ## If we have a fully qualified name, use that, otherwise extrapolate.
+  my $rule = index($name, '::') > -1 ? $name : scalar(caller)."::$name";
+  my $slot = qualify_to_ref($rule);
+
+  no warnings 'redefine';
+  *$slot = $class->compile(@etc)->code;
 }
 
 sub install {

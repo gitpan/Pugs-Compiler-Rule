@@ -2,14 +2,12 @@ package Pugs::Grammar::Base;
 use Pugs::Runtime::Match;
 use Pugs::Compiler::RegexPerl5;
 use Pugs::Compiler::Regex;
+use Data::Dumper;
 
 # This class defines <ws>, unicode character classes, etc
 
 # internal methods - not in spec
 
-# *no_match = Pugs::Compiler::RegexPerl5->compile( 
-#    '\²\$\£\%\"\^\¬' 
-# )->code;
 sub no_match {
     my $grammar = shift;
     my $pos = $_[1]{p} || 0;
@@ -29,8 +27,40 @@ sub no_match {
 
 # specced methods
 
+sub at {
+    my $grammar = shift;
+    my $pos = $_[1]{p} || 0;
+    my ( $arg ) = keys %{ $_[1]{args} };  # XXX positional
+    # print "at: ",Dumper( @_ );
+    return Pugs::Runtime::Match->new( { 
+        bool    => \( $pos == $arg ),
+        str     => \$_[0],
+        match   => [],
+        from    => \$pos,
+        to      => \$pos,
+        capture => undef,
+    } );
+}
+
+sub prior {
+    warn "Error: <prior> is undefined" 
+        unless defined $main::_V6_PRIOR_;
+
+    use warnings FATAL => 'recursion';
+    @_ = @_[0, 1, 2, 2];
+    goto &{$main::_V6_PRIOR_};  # XXX fix parameter list
+}
+
+*null = Pugs::Compiler::RegexPerl5->compile( 
+    '' 
+)->code;
+
 *ws = Pugs::Compiler::RegexPerl5->compile( 
     '(?:(?<!\w)|(?!\w)|\s)\s*' 
+)->code;
+
+*ident = Pugs::Compiler::RegexPerl5->compile( 
+    '[[:alpha:]_][[:alnum:]_]*' 
 )->code;
 
 BEGIN {

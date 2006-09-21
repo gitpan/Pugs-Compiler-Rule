@@ -13,8 +13,9 @@ use v6-alpha;
         package Pugs::Grammar::Rule;
         no strict 'refs';
         use Pugs::Runtime::Match;
-        use Pugs::Emitter::Rule::Perl5::Ratchet;
+        use Pugs::Runtime::Regex;
         our %rule_terms;
+        our %variables;
     - replace:
             $named{'concat'} = $match;
        - with:
@@ -27,6 +28,7 @@ grammar Pugs::Grammar::Rule;
 #use Pugs::Runtime::Match;
 
 our %rule_terms;
+our %variables;
 
 token pod_begin {
     |   \n =end \N*
@@ -100,11 +102,49 @@ token named_capture_body {
     | { die "invalid alias syntax" }
 }
 
+%variables = (
+
+    '$<' => token {
+        <ident> \> 
+        { return { match_variable => '$' ~ $/{'ident'}() ,} }
+    },
+    '$' => token { 
+        <?digit>+
+        { return { match_variable => '$' ~ $/() ,} }
+    |
+        \^?
+        [ <?alnum> | _ | \: \: ]+
+        { return { variable => '$' ~ $() ,} }
+    },
+    '@' => token { 
+        <?digit>+
+        { return { match_variable => '@' ~ $/() ,} }
+    |
+        \^?
+        [ <?alnum> | _ | \: \: ]+
+        { return { variable => '@' ~ $() ,} }
+    },
+    '%' => token { 
+        <?digit>+
+        { return { match_variable => '%' ~ $/() ,} }
+    |
+        \^?
+        [ <?alnum> | _ | \: \: ]+
+        { return { variable => '%' ~ $() ,} }
+    },
+
+); # /%variables
+    
+
 %rule_terms = (
 
     '(' => token {
         <rule> \)
         { return { capturing_group => $/{'rule'}() ,} }
+    },
+    '<(' => token {
+        <rule>  <')>'>
+        { return { capture_as_result => $/{'rule'}() ,} }
     },
     '<after' => token {
         <?ws> <rule> \> 
@@ -138,41 +178,6 @@ token named_capture_body {
         <metasyntax>  \>
         { return $/{'metasyntax'}() }
     },
-    '$<' => token {
-        <ident> \> <?ws>? <':='> <?ws>? <named_capture_body>
-        { 
-            return { named_capture => {
-                rule =>  $/{'named_capture_body'}(),
-                ident => $/{'ident'}(),
-            }, }; 
-        }
-    },
-    '$' => token { 
-        <?digit>+
-        { return { match_variable => '$' ~ $/() ,} }
-    |
-        \^?
-        [ <?alnum> | _ | \: \: ]+
-        { return { variable => '$' ~ $() ,} }
-    |
-        { return { colon => '$'  ,} }
-    },
-    '@' => token { 
-        <?digit>+
-        { return { match_variable => '@' ~ $/() ,} }
-    |
-        \^?
-        [ <?alnum> | _ | \: \: ]+
-        { return { variable => '@' ~ $() ,} }
-    },
-    '%' => token { 
-        <?digit>+
-        { return { match_variable => '%' ~ $/() ,} }
-    |
-        \^?
-        [ <?alnum> | _ | \: \: ]+
-        { return { variable => '%' ~ $() ,} }
-    },
     '{' => token { 
         <parsed_code>  \}
         { return { closure => $/{'parsed_code'}() ,} }
@@ -194,11 +199,37 @@ token named_capture_body {
     '::'  => token { { return { colon => '::' ,} } },
     ':'   => token { { return { colon => ':'  ,} } },
     '$$'  => token { { return { colon => '$$' ,} } },
+    '$'   => token { { return { colon => '$'  ,} } },
     '^^'  => token { { return { colon => '^^' ,} } },
     '^'   => token { { return { colon => '^'  ,} } },
+
+    ':i'           => token { { return { modifier => 'ignorecase'  ,} } },
+    ':ignorecase'  => token { { return { modifier => 'ignorecase'  ,} } },
+    ':s'           => token { { return { modifier => 'sigspace'  ,} } },
+    ':sigspace'    => token { { return { modifier => 'sigspace'  ,} } },
+    ':P5'          => token { { return { modifier => 'Perl5'  ,} } },
+    ':Perl5'       => token { { return { modifier => 'Perl5'  ,} } },
+    ':bytes'       => token { { return { modifier => 'bytes'  ,} } },
+    ':codes'       => token { { return { modifier => 'codes'  ,} } },
+    ':graphs'      => token { { return { modifier => 'graphs' ,} } },
+    ':langs'       => token { { return { modifier => 'langs'  ,} } },
+
 ); # /%rule_terms
     
 token term {
+    |  <%Pugs::Grammar::Rule::variables>
+       [  <?ws>? <':='> <?ws>? <named_capture_body>
+          { 
+            return { named_capture => {
+                rule =>  $/{'named_capture_body'}(),
+                ident => $/{'Pugs::Grammar::Rule::variables'}(),
+            }, }; 
+          }
+       |
+          { 
+            return $/{'Pugs::Grammar::Rule::variables'}() 
+          }
+       ]
     |  <%Pugs::Grammar::Rule::rule_terms>
         { 
             #print "term: ", Dumper( $_[0]->data );

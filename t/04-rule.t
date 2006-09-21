@@ -1,5 +1,5 @@
 
-use Test::More tests => 29;
+use Test::More tests => 51;
 use Data::Dumper;
 $Data::Dumper::Indent = 1;
 
@@ -230,3 +230,160 @@ no warnings qw( once );
     is( "$match", "x", 'a named subrule calls a lexical unnamed subrule' );
 }
 
+{
+    my $rule = Pugs::Compiler::Regex->compile( '^x' );
+    my $match = $rule->match( "\nx\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "", 'at-start - not' );
+
+    $match = $rule->match( "x\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "x", 'at-start' );
+}
+
+{
+    my $rule = Pugs::Compiler::Regex->compile( 'x$' );
+    my $match = $rule->match( "\nx\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "", 'at-end - not' );
+
+    $match = $rule->match( "\nx" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "x", 'at-end' );
+}
+
+{
+    my $rule = Pugs::Compiler::Regex->compile( '^^x' );
+    my $match = $rule->match( "\nyx\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "", 'at-line-start - not' );
+
+    $match = $rule->match( "\nxy\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "x", 'at-line-start' );
+    
+    $match = $rule->match( "xy\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "x", 'at-line-start, pos==0' );
+}
+
+{
+    my $rule = Pugs::Compiler::Regex->compile( 'x$$' );
+    my $match = $rule->match( "\nyxz\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "", 'at-line-end - not' );
+
+    $match = $rule->match( "\nyx\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "x", 'at-line-end' );
+    
+    $match = $rule->match( "\nyx" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "x", 'at-line-end, pos==end' );
+}
+
+{
+    my $rule = Pugs::Compiler::Regex->compile( '^x+$' );
+    my $match = $rule->match( "\nyxxz\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "", 'anchored at both sides - not' );
+
+    $match = $rule->match( "xxx" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "xxx", 'anchored at both sides' );
+}
+
+{
+    my $rule = Pugs::Compiler::Regex->compile( '^^x+$$' );
+    my $match = $rule->match( "\nyxxz\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "", 'anchored at line start/end - not' );
+
+    $match = $rule->match( "yxxz\nxxx\nk" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "xxx", 'anchored at line start/end' );
+}
+
+{
+    my $rule = Pugs::Compiler::Regex->compile( '<null>' );
+    my $match = $rule->match( "" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "", 'plain null' );
+
+    $match = $rule->match( "xxx");
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( ($match ? 1 : 0 ), 1, 'null but true' );
+}
+
+{
+    my $rule = Pugs::Compiler::Regex->compile( 'x<null>y' );
+    my $match = $rule->match( "xy" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "xy", 'null between terms' );
+}
+
+{
+    my $rule = Pugs::Compiler::Regex->compile( '<ident>' );
+    my $match = $rule->match( "\n1xy2\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "xy2", 'ident' );
+
+  {
+    my $rule = Pugs::Compiler::Regex->compile( '<prior>' );
+    my $match = $rule->match( "\n1xy2\n" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "xy2", 'prior' );
+  }
+}
+
+{
+
+    { 
+        package Test1;
+        sub meth { $_[0]{v} eq 'True' }
+    }
+
+    my $rule = Pugs::Compiler::Regex->compile( '<.can("meth")>' );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+
+    my $object = bless { v => 'True' }, 'Test1';
+
+    my $match = $rule->match( $object );
+    #print "Match: ", $match->perl;
+    is( ( $match ? 1 : 0 ) , 1, 'object matches' );
+}
+
+{
+    my $rule = Pugs::Compiler::Regex->compile( 'x <at(1)>' );
+    my $match = $rule->match( "xy" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "x", 'ident' );
+}
+
+{
+    my $rule = Pugs::Compiler::Regex->compile( 'x <(y)> z' );
+    my $match = $rule->match( "xyz" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( $$match, "y", 'return capture' );
+}

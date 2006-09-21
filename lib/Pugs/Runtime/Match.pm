@@ -5,7 +5,6 @@ use 5.006;
 use strict;
 use warnings;
 use Data::Dumper;
-use Data::Dump::Streamer;  
 #use Class::InsideOut qw( public register id );
 use Scalar::Util 'refaddr';
 
@@ -43,6 +42,9 @@ sub bool  {  ${$_data{refaddr $_[0]}->{bool}}  }
 sub hash  {    $_data{refaddr $_[0]}->{named}  }
 sub array {    $_data{refaddr $_[0]}->{match}  }
 
+sub keys   { CORE::keys   %{$_data{refaddr $_[0]}->{named}} }
+sub values { CORE::values %{$_data{refaddr $_[0]}->{named}} }
+
 sub flat {
     my $obj = $_data{refaddr $_[0]};
     my $cap = $obj->{capture};
@@ -66,6 +68,44 @@ sub perl {
     local $Data::Dumper::Sortkeys = 1;
     local $Data::Dumper::Pad = '  ';
     return __PACKAGE__ . "->new( " . Dumper( $_[0]->data ) . ")\n";
+}
+
+# for Pugs interoperability
+sub dump_hs {
+    my $obj;
+    if (ref($_[0]) eq 'SCALAR') {
+        $obj = ${$_[0]};
+    }
+    else {
+        $obj = $_data{refaddr $_[0]};
+    }
+
+    if ($obj) {
+        # Ok, this is a genuine Match object.
+        return "PGE_Fail" unless ${$obj->{bool}};
+
+        # Now we matched; dump the rest of data
+        join(' ', 'PGE_Match', ${$obj->{from}}, ${$obj->{to}},
+            ('['.join(', ', map { dump_hs($_) } @{$obj->{match}||[]} ).']'),
+            ('['.join(', ', map {
+                my $str = $_;
+                $str =~ s/([^ \!\#\$\%\&\x28-\x5B\x5D-\x7E])/'\\'.ord($1)/eg;
+                '("' . $str . '", ' . dump_hs($obj->{named}{$_}) . ')';
+            } sort(CORE::keys(%{$obj->{named}||{}})) ).']'),
+        )
+    }
+    elsif (ref($_[0]) eq 'ARRAY') {
+        return "PGE_Array [" . join(', ', map { dump_hs($_) } @$obj) . "]"
+    }
+    elsif (!ref($_[0])) {
+        my $str = shift;
+        $str =~ s/([^ \!\#\$\%\&\x28-\x5B\x5D-\x7E])/'\\'.ord($1)/eg;
+        return "PGE_String \"$str\"";
+    }
+    else {
+        warn "Unrecognized blessed match object: $_[0]";
+        return '';
+    }
 }
 
 # tail() for backwards compatibility

@@ -4,9 +4,10 @@ package Pugs::Runtime::Regex;
 
 use strict;
 use warnings;
+no warnings qw(recursion);
+
 #use Smart::Comments; #for debugging, look also at Filtered-Comments.pm
 use Data::Dumper;
-use PadWalker qw( peek_my );  # peek_our ); ???
 use Pugs::Runtime::Match;
 
 # note: alternation is first match (not longest). 
@@ -108,13 +109,33 @@ sub concat {
                 %{$_[3]->data},
                 bool    => \($m2->bool),
                 to      => \($m2->to),
-                capture => $m2->data->{capture},
+                capture => $m2->data->{capture} || $_[3]->data->{capture},
                 abort   => $m2->data->{abort},
                 state   => ( defined $state[0] || defined $state[1] 
                              ? \@state 
                              : undef ),
         );
     }
+}
+
+sub try_method { 
+    my $method = shift;
+    my $param_list = shift;  # XXX
+    no warnings qw( uninitialized );
+    # XXX method call must be inlined, due to inheritance problems
+    my $sub = 'sub {
+        my $bool = $_[0]->'.$method.'( '.$param_list.' ) ? 1 : 0;
+        $_[3] = Pugs::Runtime::Match->new({ 
+                bool  => \$bool,
+                str   => \$_[0],
+                from  => \(0 + $_[5]),
+                to    => \(0 + $_[5]),
+                named => {},
+                match => [],
+            });
+    }';
+    #print "sub: $sub\n";
+    return eval $sub;
 }
 
 sub constant { 
@@ -240,6 +261,30 @@ sub positional {
     }
 }
 
+sub capture_as_result {
+    # return a capture as the result object
+    my $node = shift;
+    sub {
+        my $match;
+        $node->( @_[0,1,2], $match, @_[4,5,6,7] );
+        $_[3] = Pugs::Runtime::Match->new({ 
+                bool  => \( $match->bool ),
+                str   => \$_[0],
+                from  => \( $match->from ),
+                to    => \( $match->to ),
+                named => {},
+                match => [],
+                capture => ( 
+                    sub {
+                        # print "Match: ", Dumper( $match );
+                        '' . $match 
+                    } 
+                ),
+                state => $match->state,
+            });
+    }
+}
+
 sub ___abort { 
     my $op = shift;
     return sub {
@@ -279,6 +324,70 @@ sub before {
             });
     };
 }
+
+sub at_start {
+    no warnings qw( uninitialized );
+    return sub {
+        $_[3] = Pugs::Runtime::Match->new({ 
+                bool  => \( $_[5] == 0 ),
+                str   => \$_[0],
+                from  => \(0 + $_[5]),
+                to    => \(0 + $_[5]),
+                named => {},
+                match => [],
+                abort => 0,
+            });
+    }
+};
+
+sub at_line_start {
+    no warnings qw( uninitialized );
+    return sub {
+        my $bool = $_[5] == 0
+            ||  substr( $_[0], 0, $_[5] ) =~ /\n$/s;
+        $_[3] = Pugs::Runtime::Match->new({ 
+                bool  => \$bool,
+                str   => \$_[0],
+                from  => \(0 + $_[5]),
+                to    => \(0 + $_[5]),
+                named => {},
+                match => [],
+                abort => 0,
+            });
+    }
+};
+
+sub at_line_end {
+    no warnings qw( uninitialized );
+    return sub {
+        my $bool = $_[5] >= length( $_[0] )
+            ||  substr( $_[0], $_[5] ) =~ /^\n/s;
+        $_[3] = Pugs::Runtime::Match->new({ 
+                bool  => \$bool,
+                str   => \$_[0],
+                from  => \(0 + $_[5]),
+                to    => \(0 + $_[5]),
+                named => {},
+                match => [],
+                abort => 0,
+            });
+    }
+};
+
+sub at_end_of_string {
+    no warnings qw( uninitialized );
+    return sub {
+        $_[3] = Pugs::Runtime::Match->new({ 
+                bool  => \( $_[5] == length( $_[0] ) ),
+                str   => \$_[0],
+                from  => \(0 + $_[5]),
+                to    => \(0 + $_[5]),
+                named => {},
+                match => [],
+                abort => 0,
+            });
+    }
+};
 
 # ------- higher-order ruleops
 
@@ -326,34 +435,63 @@ sub non_greedy_plus {
 }
 
 
-sub _preprocess_hash {
-    my $h = shift;
-    #print "hash: ",ref($h),"\n";
-    if ( ref($h) eq 'CODE') {
-        return sub {
-            $h->();
-            return null()->(@_);
-        };
-    } 
-    if ( ref($h) =~ /^Pugs::Compiler::/ ) {
-        #print "compiling subrule\n";
-        #return $h->code;
+sub preprocess_hash {
+    # TODO - move to Pugs::Runtime::Regex
+    my ( $h, $key ) = @_;
+    # returns AST depending on $h
+    if ( ref( $h->{$key} ) eq 'CODE') {
         return sub { 
-            #print "into subrule - $_[0] - grammar $_[4] - ", Dumper($_[7]); 
-            #print $h->{perl5};
-            my $match = $h->match( $_[0], $_[4], $_[7], $_[1] );
-            #print "match: ",$match->(),"\n";
-            $_[3] = $match;
-        };
+            my ( $str, $grammar, $args ) = @_;
+            #print "data: ", Dumper( \@_ );
+            my $ret = $h->{$key}->( @_ ); 
+            #print "ret: ", Dumper( $ret );
+            
+            return $ret 
+                if ref( $ret ) eq 'Pugs::Runtime::Match';
+            
+            Pugs::Runtime::Match->new( { 
+                bool => \1, 
+                str =>  \$str,
+                from => \( 0 + ( $args->{p} || 0 ) ),
+                to =>   \( 0 + ( $args->{p} || 0 ) ),
+                named => {},
+                match => [],
+            } ) }
+    } 
+    if ( ref( $h->{$key} ) =~ /Pugs::Compiler::/ ) {
+        return sub { $h->{$key}->match( @_ ) };
     }
     # fail is number != 1 
-    if ( $h =~ /^(\d+)$/ ) {
-        return failed unless $1 == 1;
-        return null;
+    if ( $h->{$key} =~ /^(\d+)$/ ) {
+        return sub { 
+            my ( $str, $grammar, $args ) = @_;
+            Pugs::Runtime::Match->new( { 
+                bool => \0, 
+                str =>  \$str,
+                from => \( 0 + ( $args->{p} || 0 ) ),
+                to =>   \( 0 + ( $args->{p} || 0 ) ),
+                named => {},
+                match => [],
+            } ) } unless $1 == 1;
+        return sub { 
+            my ( $str, $grammar, $args ) = @_;
+            Pugs::Runtime::Match->new( { 
+                bool => \1, 
+                str =>  \$str,
+                from => \( 0 + ( $args->{p} || 0 ) ),
+                to =>   \( 0 + ( $args->{p} || 0 ) ),
+                named => {},
+                match => [],
+            } ) };
     }
     # subrule
-    warn "uncompiled subrule: $h - not implemented";
-    return failed;
+    #print "compile: ",$h->{$key}, "\n";
+
+    # XXX - compile to Token or to Regex ? (v6.pm needs Token)
+    my $r = Pugs::Compiler::Token->compile( $h->{$key} );
+    $h->{$key} = $r;
+    return sub { $r->match( @_ ) };
+    # return sub { warn "uncompiled subrule: $h->{$key} - not implemented " };
 }
 
 # see commit #9783 for an alternate implementation
@@ -362,24 +500,21 @@ sub hash {
     #print "HASH: @{[ %hash ]}\n";
     my @keys = sort {length $b <=> length $a } keys %hash;
     #print "hash keys [ @keys ]\n";
-    @keys = map {
-        concat( [
-            constant( $_ ),
-            _preprocess_hash( $hash{$_} ),
-        ] )
-    } @keys;
+    for ( @keys ) {
+        my $h = preprocess_hash( \%hash, $_ );
+        my $key = $_;
+        $_ = 
+          concat( [
+            constant( $key ),
+            sub { 
+              # print "hash param: ",Dumper(\@_);
+              # TODO - add $<KEY> to $_[7]
+              $_[3] = $h->( $_[0], $_[4], $_[7], $_[1] );
+              # print "result: ",Dumper($_[3]);
+            }
+          ] );
+    }
     return alternation( \@keys );
-}
-
-sub end_of_string {
-    return sub {
-        $_[3] = { 
-            bool  => ($_[0] eq ''),
-            match => '',
-            # TODO
-        };
-        return;
-    };
 }
 
 # not a 'rule node'
@@ -390,7 +525,7 @@ sub get_variable {
     
     local $@;
     my($idx, $pad) = 0;
-    while(eval { $pad = peek_my($idx) }) {
+    while(eval { require PadWalker; $pad = PadWalker::peek_my($idx) }) {
         $idx++, next
           unless exists $pad->{$name};
 
