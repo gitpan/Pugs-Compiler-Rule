@@ -6,7 +6,7 @@ use strict;
 use warnings;
 use Data::Dumper;
 #use Class::InsideOut qw( public register id );
-use Scalar::Util 'refaddr';
+use Scalar::Util qw( refaddr blessed );
 
 use overload (
     '@{}'    => \&array,
@@ -39,11 +39,35 @@ sub data  {    $_data{refaddr $_[0]}           }
 sub from  {  ${$_data{refaddr $_[0]}->{from}}  }
 sub to    {  ${$_data{refaddr $_[0]}->{to}}    }
 sub bool  {  ${$_data{refaddr $_[0]}->{bool}}  }
-sub hash  {    $_data{refaddr $_[0]}->{named}  }
 sub array {    $_data{refaddr $_[0]}->{match}  }
 
-sub keys   { CORE::keys   %{$_data{refaddr $_[0]}->{named}} }
-sub values { CORE::values %{$_data{refaddr $_[0]}->{named}} }
+sub hash  {   
+    my $array = $_data{refaddr $_[0]}->{match};
+    return {
+        %{ $_data{refaddr $_[0]}->{named} },
+        (
+        map { ( $_, $array->[$_] ) } 
+            0 .. $#$array
+        ),
+    }
+}
+sub keys   { 
+    CORE::keys   %{$_data{refaddr $_[0]}->{named}},
+    0 .. $#{ $_[0]->array }
+}
+sub values { 
+    CORE::values %{$_data{refaddr $_[0]}->{named}},
+    @{ $_[0]->array }
+}
+sub kv {
+    map { ( $_, $_[0]->{$_} ) } 
+        $_[0]->keys 
+}
+sub elems  { 
+    scalar $_[0]->keys
+}
+
+sub chars  { CORE::length $_[0]->str }
 
 sub flat {
     my $obj = $_data{refaddr $_[0]};
@@ -60,7 +84,7 @@ sub flat {
 }
 
 sub str {
-    $_[0]->flat;
+    "" . $_[0]->flat;
 }
 
 sub perl {
@@ -68,6 +92,13 @@ sub perl {
     local $Data::Dumper::Sortkeys = 1;
     local $Data::Dumper::Pad = '  ';
     return __PACKAGE__ . "->new( " . Dumper( $_[0]->data ) . ")\n";
+}
+
+sub yaml {
+    eval { use YAML::Syck };
+    # interoperability with other YAML/Syck bindings:
+    $YAML::Syck::ImplicitTyping = 1;
+    Dump( $_[0] );
 }
 
 # for Pugs interoperability
@@ -89,8 +120,13 @@ sub dump_hs {
             ('['.join(', ', map { dump_hs($_) } @{$obj->{match}||[]} ).']'),
             ('['.join(', ', map {
                 my $str = $_;
-                $str =~ s/([^ \!\#\$\%\&\x28-\x5B\x5D-\x7E])/'\\'.ord($1)/eg;
-                '("' . $str . '", ' . dump_hs($obj->{named}{$_}) . ')';
+                if ( my $dump = dump_hs($obj->{named}{$_}) ) {
+                    $str =~ s/([^ \!\#\$\%\&\x28-\x5B\x5D-\x7E])/'\\'.ord($1)/eg;
+                    qq[("$str", $dump)];
+                }
+                else {
+                    ();
+                }
             } sort(CORE::keys(%{$obj->{named}||{}})) ).']'),
         )
     }
@@ -142,25 +178,53 @@ Pugs::Runtime::Match - Match object created by rules
 
 * array
 
+- return the positional matches
+
 * hash
+
+- return both the named and positional (numbered) matches
 
 * str
 
-* data
+- return the stringified capture object. 
+If there is no capture, return the matched substring
 
-- return the internal representation
+* scalar
+
+- return the capture object
+If there is no capture, return the matched substring
 
 * bool
 
+- return whether there was a match
+
 * from
 
+- return the string position where the match started
+
 * to
+
+- return the string position immediately after where the match finished
+
+=head1 "Hash" methods
+
+* elems
+
+* kv
+
+* keys
+
+* values
+
+=head1 "Str" methods
+
+* chars
 
 =head1 OVERLOADS
 
 * $match->()
 
-- return the capture
+- return the capture object
 
 * $match->[$n]
 
@@ -174,9 +238,28 @@ Pugs::Runtime::Match - Match object created by rules
 
 - return whether there was a match
 
+=head1 Dumper methods
+
+* data
+
+- return the internal representation as a data structure.
+
+* perl
+
+- return the internal representation as Perl source code. 
+
+* yaml
+
+- return the internal representation as YAML. 
+Requires the C<YAML::Syck> module.
+
+* dump_hs
+
+- for Pugs interoperability
+
 =head1 SEE ALSO
 
-Pugs::Runtime::Match
+C<v6> on CPAN
 
 =head1 AUTHORS
 

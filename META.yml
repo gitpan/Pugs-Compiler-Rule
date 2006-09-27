@@ -4,13 +4,13 @@ distribution_type: module
 generated_by: Module::Install version 0.64
 license: perl
 name: Pugs-Compiler-Rule
-no_index:
-  directory:
+no_index: 
+  directory: 
     - inc
     - t
-requires:
+requires: 
   Cache::Cache: 1.05
   PadWalker: 1.0
   Parse::Yapp: 0
   perl: 5.6.0
-version: 0.18
+version: 0.19
