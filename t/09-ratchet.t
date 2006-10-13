@@ -1,5 +1,5 @@
 
-use Test::More tests => 133;
+use Test::More tests => 142;
 use Data::Dumper;
 $Data::Dumper::Indent = 1;
 
@@ -876,11 +876,23 @@ TODO:
     is( "$match", "xy2", 'ident' );
 
   {
-    my $rule = Pugs::Compiler::Token->compile( '<prior>' );
-    my $match = $rule->match( "\n1xy2\n" );
+    my $rule = Pugs::Compiler::Token->compile( '<prior> \s <prior>' );
+    my $match = $rule->match( "\n1xy2 xxx\n" );
     #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
     #print "Match: ", $match->perl;
-    is( "$match", "xy2", 'prior' );
+    is( "$match", "xy2 xxx", 'prior' );
+  }
+
+#TODO:
+    {
+    #local $TODO = '<prior> is recursive';
+    my $rule = Pugs::Compiler::Token->compile( '<prior> \s <prior>' );
+    my $match = eval {
+        $rule->match( "\n1xy2 xy3 kkk lll\n" )
+    } || '';
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    is( "$match", "xy2 xy3 kkk lll", 'prior-prior' );
   }
 }
 
@@ -915,4 +927,45 @@ TODO:
     #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
     #print "Match: ", $match->perl;
     is( $$match, "y", 'return capture' );
+}
+
+{
+    my $rule = Pugs::Compiler::Token->compile( '<<xyz' );
+    my $match = $rule->match( "axyz xyz" );
+    #print "Ast: ", do{use Data::Dumper; Dumper($rule->{ast})};
+    #print "Source: ", $rule->{perl5};
+    #print "Match: ", $match->perl;
+    is( $$match, "xyz", '<<xyz' );
+    is( $match->from > 1, 1, '<<xyz' );
+}
+{
+    my $rule = Pugs::Compiler::Token->compile( '«xyz' );
+    my $match = $rule->match( "axyz xyz" );
+    #print "Ast: ", do{use Data::Dumper; Dumper($rule->{ast})};
+    #print "Source: ", $rule->{perl5};
+    #print "Match: ", $match->perl;
+    is( $$match, "xyz", '<<xyz' );
+    is( $match->from > 1, 1, '<<xyz' );
+}
+{
+    my $rule = Pugs::Compiler::Token->compile( 'xyz»' );
+    my $match = $rule->match( "xyza xyz" );
+    #print "Ast: ", do{use Data::Dumper; Dumper($rule->{ast})};
+    #print "Source: ", $rule->{perl5};
+    #print "Match: ", $match->perl;
+    is( $$match, "xyz", 'xyz>>' );
+    is( $match->from > 0 , 1, 'xyz>>' );
+}
+{
+    my $rule = Pugs::Compiler::Token->compile( 'xyz>>' );
+    my $match = $rule->match( "xyza xyz" );
+    #print "Ast: ", do{use Data::Dumper; Dumper($rule->{ast})};
+    #print "Source: ", $rule->{perl5};
+    #print "Match: ", $match->perl;
+    is( $$match, "xyz", 'xyz>>' );
+TODO:
+    {
+    local $TODO = 'the parser ignores />>/, it looks to be a Module::Compile bug';
+    is( $match->from > 0 , 1, 'xyz>>' );
+    }
 }

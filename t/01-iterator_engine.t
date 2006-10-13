@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 28;
+use Test::More tests => 36;
 # use Data::Dumper;
 # $Data::Dumper::Indent = 1;
 # $Data::Dumper::Pad = '# ';
@@ -121,6 +121,20 @@ my ( $rule, $match );
 
 {
   $rule = 
+    Pugs::Runtime::Regex::greedy_plus( 
+      Pugs::Runtime::Regex::constant( 'a' ),
+      3, 
+    );
+  $rule->( 'aaaa', undef, {}, $match );
+  is ( "$match", "aaaa", "/a**{3..*}/" );
+  $rule->( 'aaa', undef, {}, $match );
+  is ( "$match", "aaa", "/a**{3..*}/" );
+  $rule->( 'aa', undef, {}, $match );
+  ok ( ! $match->bool, "rejects unmatching text" );
+}
+
+{
+  $rule = 
     Pugs::Runtime::Regex::concat( 
       Pugs::Runtime::Regex::greedy_plus( 
         Pugs::Runtime::Regex::alternation( [
@@ -204,5 +218,64 @@ my ( $rule, $match );
   $alt->( 'a|a|a', undef, {capture=>1}, $match );
   ok ( $match, "/a [ |a ]*/ #3" );
 
+}
+
+{
+    # ranges
+
+  $rule = 
+    Pugs::Runtime::Regex::concat(
+      Pugs::Runtime::Regex::non_greedy_plus( 
+        Pugs::Runtime::Regex::alternation( [
+          Pugs::Runtime::Regex::constant( 'a' ), 
+          Pugs::Runtime::Regex::constant( 'c' ), 
+        ] ),
+        2, 4,  # range
+      ),
+      Pugs::Runtime::Regex::constant( 'cb' )
+    );
+  $rule->( 'aacacb', undef, {capture=>1}, $match );
+  ok ( defined $match, "/[a|c]+?cb/ with backtracking" );
+  #print Dumper( $match );
+  #print "Match: $match \n"; # 
+  is ( "$match", "aacacb", "/[a|c]+?cb/ with range" );
+
+  $rule = 
+    Pugs::Runtime::Regex::concat(
+      Pugs::Runtime::Regex::non_greedy_plus( 
+        Pugs::Runtime::Regex::alternation( [
+          Pugs::Runtime::Regex::constant( 'a' ), 
+          Pugs::Runtime::Regex::constant( 'c' ), 
+        ] ),
+        1, 2,  # range
+      ),
+      Pugs::Runtime::Regex::constant( 'cb' )
+    );
+  $rule->( 'aacacb', undef, {capture=>1}, $match );
+  ok ( $match ? 0 : 1, "/[a|c]+?cb/ with bad range fails" );
+
+  $rule = 
+    Pugs::Runtime::Regex::concat(
+      Pugs::Runtime::Regex::non_greedy_plus( 
+        Pugs::Runtime::Regex::alternation( [
+          Pugs::Runtime::Regex::constant( 'a' ), 
+          Pugs::Runtime::Regex::constant( 'c' ), 
+        ] ),
+        5, 7,  # range
+      ),
+      Pugs::Runtime::Regex::constant( 'cb' )
+    );
+  $rule->( 'aacacb', undef, {capture=>1}, $match );
+  ok ( $match ? 0 : 1, "/[a|c]+?cb/ with bad range fails" );
+}
+
+{
+  # -- concat() empty array
+  $rule = 
+    Pugs::Runtime::Regex::concat( [] );
+  my $str = 'abbb';
+  $rule->( $str, undef, {}, $match );
+  #print "state 1: ", Dumper($match->state), "\n";
+  is ( $match->str, '', "empty concat" );
 }
 

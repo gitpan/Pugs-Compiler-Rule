@@ -28,6 +28,7 @@ eval {
 sub new { $_[0] }
 
 sub compile {
+    local $::_V6_MATCH_;  # avoid messing with global $/
     
     # $class->compile( $source )
     # $class->compile( $source, { p=>1 } )
@@ -55,6 +56,9 @@ sub compile {
     $self->{sigspace} = delete $param->{sigspace} ||
                         delete $param->{s}        || 
                         0;
+    $self->{continue} = delete $param->{continue} ||
+                        delete $param->{c}        || 
+                        0;
     delete $param->{s};
 
     warn "Error in rule: unknown parameter '$_'" 
@@ -74,6 +78,8 @@ sub compile {
         #print "match: ", Dumper( Pugs::Grammar::Rule->rule( $self->{source} ) );
         my $ast = Pugs::Grammar::Rule->rule( 
             $self->{source} )->();
+            
+        #$self->{ast} = $ast;
         #print "ast: ",Dumper($ast),"\n";
         #die "Error in rule: '$rule_source' at: '$ast->tail'\n" if $ast->tail;
         #print 'rule ast: ', do{use Data::Dumper; Dumper($ast{capture})};
@@ -128,6 +134,7 @@ sub match {
 
     #print "match: ",Dumper($rule);
     #print "match: ",Dumper(\@_);
+    #print "PCR::match: ",Dumper($_[2]);
     
     return Pugs::Runtime::Match->new( { bool => \0 } )
         unless defined $str;   # XXX - fix?
@@ -142,12 +149,19 @@ sub match {
     $grammar ||= $rule->{grammar};
     #print "match: grammar $rule->{grammar}, $_[0], $flags\n";
     #print "match: Variables: ", Dumper ( $flags->{args} ) if defined $flags->{args};
+    #print "match: Flags: ", Dumper ( $flags ) if defined $flags;
 
     my $p = defined $flags->{p} 
             ? $flags->{p} 
             : defined $flags->{pos} 
             ? $flags->{pos} 
             : $rule->{p};
+
+    my $continue = defined $flags->{c} 
+            ? $flags->{c} 
+            : defined $flags->{continue} 
+            ? $flags->{continue} 
+            : $rule->{c};
 
         #print "flag p";
         #print "match: grammar $rule->{grammar}, $str, %$flags\n";
@@ -164,6 +178,7 @@ sub match {
         my %args;
         %args = %{$flags->{args}} if defined $flags && defined $flags->{args};
         $args{p} = $p;
+        $args{continue} = $continue;
         
         #print "calling code with ",Dumper([ $grammar,$str, $state,\%args ] );
         my $match = $rule->{code}( 

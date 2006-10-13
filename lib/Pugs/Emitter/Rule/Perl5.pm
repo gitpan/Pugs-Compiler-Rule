@@ -52,11 +52,14 @@ sub emit {
         #"    print \"match args: \",Dumper(\@_);\n" .
         "
     my \$tree;
-    if ( defined \$_[3]{p} ) {
+    if (  defined \$_[3]{p} 
+       && ! \$_[3]{continue}
+       ) {
       \$matcher->( \$_[1], \$_[2], \$tree, \$tree, \$_[0], \$_[3]{p}, \$_[1], \$_[3] );
     }
     else {
-      for my \$pos ( 0 .. length( \$_[1] ) ) {
+      \$_[3]{p} ||= 0;
+      for my \$pos ( \$_[3]{p} .. length( \$_[1] ) ) {
         my \$param = { \%{\$_[3]}, p => \$pos };
         \$matcher->( \$_[1], \$_[2], \$tree, \$tree, \$_[0], \$pos, \$_[1], \$param );
         last if \$tree;
@@ -69,7 +72,16 @@ sub emit {
       \$::_V6_MATCH_ = \$tree;
       \$tree->data->{capture} = \\(\$cap->( \$tree ));
     };
-    if ( \$tree ) { \$::_V6_PRIOR_ = \$rule }
+    if ( \$tree ) { 
+      # \$::_V6_PRIOR_ = \$rule 
+
+      my \$prior = \$::_V6_PRIOR_;
+      \$::_V6_PRIOR_ = sub { 
+        local \$main::_V6_PRIOR_ = \$prior; 
+        \$rule->(\@_);
+      };
+
+    }
     return \$tree;
   }
 }
@@ -247,6 +259,12 @@ sub variable {
 }
 sub special_char {
     my $char = substr($_[0],1);
+
+    return  "$_[1] perl5( '(?:\n\r?|\r\n?)' )\n"
+        if $char eq 'n';
+    return  "$_[1] perl5( '(?!\n\r?|\r\n?).' )\n"
+        if $char eq 'N';
+
     for ( qw( r n t e f w d s ) ) {
         return "$_[1] perl5( '\\$_' )\n" if $char eq $_;
         return "$_[1] perl5( '[^\\$_]' )\n" if $char eq uc($_);
@@ -387,6 +405,10 @@ sub colon {
         if $str eq '^^';
     return "$_[1] at_line_end() \n"
         if $str eq '$$';
+    return metasyntax( '?_wb_left', $_[1] )
+        if $str eq '<<';
+    return metasyntax( '?_wb_right', $_[1] )
+        if $str eq '>>';
     die "'$str' not implemented";
 }
 sub modifier {

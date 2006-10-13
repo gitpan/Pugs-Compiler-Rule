@@ -58,7 +58,7 @@ sub call_perl5 {
     my $const = $_[0];
     #print "CONST: $const - $direction \n";
     return
-"$_[1] ( ( substr( \$s, \$pos ) =~ m/^($const)/s )  
+"$_[1] ( ( substr( \$s, \$pos ) =~ m/^($const)/ )  
 $_[1]     ? ( \$pos $direction= length( \$1 ) or 1 )
 $_[1]     : 0
 $_[1] )";
@@ -84,7 +84,9 @@ sub emit {
         #"  print \"match arg_list = \@{[\%{\$_[1]} ]}\n\" if defined \$_[1];\n" .
         #"  print \"match pos = \$pos\n\";\n" .
 "  my \$m;
-  for my \$pos ( defined \$_[3]{p} ? \$_[3]{p} : ( 0 .. length( \$s ) ) ) {
+  for my \$pos ( defined \$_[3]{p} && ! \$_[3]{continue} 
+        ? \$_[3]{p} 
+        : ( ( \$_[3]{p} || 0 ) .. length( \$s ) ) ) {
     my \%index; 
     my \@match;
     my \%named;
@@ -95,14 +97,19 @@ sub emit {
       bool => \\\$bool, match => \\\@match, named => \\\%named, capture => undef, 
     } );
     {
+      my \$prior = \$::_V6_PRIOR_;
+      local \$::_V6_PRIOR_ = \$prior; 
       \$bool = 0 unless
 " .
         #"      do { TAILCALL: ;\n" .
         emit_rule( $ast, '    ' ) . ";
     }
     if ( \$bool ) {
-      \$::_V6_PRIOR_ = \$rule;
-      #print \"rule = \$::_V6_PRIOR_ \\n\";
+      my \$prior = \$::_V6_PRIOR_;
+      \$::_V6_PRIOR_ = sub { 
+        local \$main::_V6_PRIOR_ = \$prior; 
+        \$rule->(\@_);
+      };
       last;
     }
   } # /for
@@ -331,6 +338,10 @@ sub variable {
 }
 sub special_char {
     my $char = substr($_[0],1);
+    return  call_perl5( '(?:\n\r?|\r\n?)', $_[1] )
+        if $char eq 'n';
+    return  call_perl5( '(?!\n\r?|\r\n?).', $_[1] )
+        if $char eq 'N';
     for ( qw( r n t e f w d s ) ) {
         return call_perl5(   "\\$_",  $_[1] ) if $char eq $_;
         return call_perl5( "[^\\$_]", $_[1] ) if $char eq uc($_);
@@ -638,11 +649,16 @@ sub colon {
     return "$_[1] ( \$pos == 0 ) \n" 
         if $str eq '^';
         
-    return "$_[1] ( \$pos >= length( \$s ) || substr( \$s, \$pos ) =~ /^\\n/s ) \n" 
+    return "$_[1] ( \$pos >= length( \$s ) || substr( \$s, \$pos ) =~ /^(?:\n\r?|\r\n?)/m ) \n" 
         if $str eq '$$';
-    return "$_[1] ( \$pos == 0 || substr( \$s, 0, \$pos ) =~ /\\n\$/s ) \n" 
+    return "$_[1] ( \$pos == 0 || substr( \$s, 0, \$pos ) =~ /(?:\n\r?|\r\n?)\$/m ) \n" 
         if $str eq '^^';
 
+    return metasyntax( '?_wb_left', $_[1] )
+        if $str eq '<<';
+    return metasyntax( '?_wb_right', $_[1] )
+        if $str eq '>>';
+        
     die "'$str' not implemented";
 }
 sub modifier {

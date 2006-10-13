@@ -36,6 +36,8 @@ sub alternation {
 sub concat {
     my $nodes = shift;
     $nodes = [ $nodes, @_ ] unless ref($nodes) eq 'ARRAY';  # backwards compat
+    return null()      if ! @$nodes;
+    return $nodes->[0] if @$nodes == 1;
     if ( @$nodes > 2 ) {
         return concat(
             concat( [ $nodes->[0], $nodes->[1] ] ),
@@ -212,6 +214,7 @@ sub failed {
                 to    => \(0 + $_[5]),
                 named => {},
                 match => [],
+                state => undef,
             });
     }
 };
@@ -418,37 +421,138 @@ sub null_or_optional {
     alternation( [ null(), $node ] );
 }
 
+sub greedy_star { 
+    greedy_plus( $_[0], $_[1] || 0, $_[2] ) 
+}
+
+sub non_greedy_star { 
+    non_greedy_plus( $_[0], $_[1] || 0, $_[2] ) 
+}
+
+# XXX - needs optimization for faster backtracking, less stack usage
+# TODO - run-time ranges (iterator)
 sub greedy_plus { 
     my $node = shift;
+    my $min_count = defined( $_[0] ) ? $_[0] : 1;
+    my $max_count = $_[1];  
+    if (  defined $max_count 
+       && $max_count < 1e99
+       ) {
+        return concat( [ 
+            ( $node )             x $min_count, 
+            ( optional( $node ) ) x ($max_count - $min_count) 
+        ] );
+    }
+    # $max_count == infinity
     my $alt;
     $alt = concat( [
         $node, 
         optional( sub{ goto $alt } ),  
     ] );
-    return $alt;
+    return optional( $alt ) if $min_count < 1;
+    return concat( [ ( $node ) x ($min_count - 1), $alt ] );
 }
 
-sub greedy_star { 
-    my $node = shift;
-    optional( greedy_plus( $node ) );
-}
-
-sub non_greedy_star { 
-    my $node = shift;
-    alternation( [ 
-        null(),
-        non_greedy_plus( $node ) 
-    ] );
-}
-
+# XXX - needs optimization for faster backtracking, less stack usage
+# TODO - run-time ranges (iterator)
 sub non_greedy_plus { 
     my $node = shift;
-    # XXX - needs optimization for faster backtracking, less stack usage
+    my $min_count = defined( $_[0] ) ? $_[0] : 1;
+    my $max_count = $_[1] || 1e99;
     return sub {
-        my $state = $_[1] || $node;
-        $state->( $_[0], undef, @_[2..7] );
-        $_[3]->data->{state} = concat( [ $node, $state ] );
+        my $state = $_[1] 
+            || { node  => concat( [ ( $node ) x $min_count ] ), 
+                 count => $min_count };
+        return failed()->(@_)
+            if $state->{count} > $max_count;
+        $state->{node}->( $_[0], undef, @_[2..7] );
+        $_[3]->data->{state} = 
+            { node  => concat( [ $node, $state->{node} ] ), 
+              count => $state->{count} + 1 };
     }
+}
+
+sub range {
+    my $node = shift;
+    my $min_count = shift;
+    my $max_count = shift;
+    my $greedy = not shift;
+    return sub {
+
+        my $continuation = $_[1]; #XXX how do optional continuations work?
+
+        # Forward declarations
+
+        my $try_getting_more;
+
+        my $default_behavior;
+        my $fallback_behavior;
+
+        # Loop variables
+
+        my $count = 0;
+        my $previous_pos = -1;
+
+        # Loop 1 - getting to min_count
+
+        my $continue_towards_min;
+        my $get_minimum = sub {
+            if ( $count < $min_count ) {
+                $count++;
+                goto &$continue_towards_min;
+            } else {
+                goto &$try_getting_more;
+            }
+        };
+        $continue_towards_min = concat( [ $node, $get_minimum ] );
+
+        # Loop 2 - beyond the minimum
+
+        $try_getting_more = sub {
+
+            my $current_pos = $_[5];
+
+            # (1) Stop when max_count is reached, or if pos does not move.
+
+            if ( !( $count < $max_count ) ||
+                 !( $previous_pos < $current_pos ) )
+            {
+                goto &$continuation;
+            }
+            $count++;
+            $previous_pos = $current_pos;
+
+            # (2) Attempt the default behavior.
+
+            # XXX - This section needs to be filled in.
+            # try $default_behavior
+            #  if successful, return.
+            #  if abort, do whatever is needed.
+            #  if fail, we need to backtrack:
+            #    undo any side-effects from trying the $default_behavior,
+            #    so we can do the $fallback_behavior.
+
+            # (3) Since the default behavior failed, do the fall-back beharvior.
+
+            goto &$fallback_behavior;
+
+        };
+        my $get_one_and_maybe_more = concat( [ $node, $try_getting_more ] );
+
+        # Final preparations.
+
+        if ( $greedy ) {
+            $default_behavior = $get_one_and_maybe_more;
+            $fallback_behavior = $continuation;
+        } else { # non-greedy
+            $default_behavior = $continuation;
+            $fallback_behavior = $get_one_and_maybe_more;
+        }
+
+        # Start.
+
+        goto &$get_minimum;
+    };
 }
 
 

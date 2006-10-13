@@ -1,10 +1,14 @@
 package Pugs::Runtime::Match::HsBridge;
 
+use utf8;
 use strict;
 use warnings;
 use Pugs::Grammar::Base ();
 use Pugs::Compiler::Regex ();
 use base 'Pugs::Grammar::Base';
+
+BEGIN { local $@; eval { require 'utf8_heavy.pl' } }
+
 use ops ($ENV{PUGS_SAFEMODE} ? (':default', 'binmode', 'entereval') : ());
 
 sub __RUN__ {
@@ -14,13 +18,19 @@ sub __RUN__ {
     my %subrules    = @_;
 
     while (my ($name, $body) = each %subrules) {
-        my %opts = (grammar => __PACKAGE__);
-        ($1 and $opts{$1} = 1) while $body =~ s/^:(\w*)\(1?\)\[(.*)\]\z/$2/s;
-        Pugs::Compiler::Regex->reinstall( $name => $body, \%opts );
+        my %sub_opts = (grammar => __PACKAGE__);
+        ($1 and $sub_opts{$1} = 1) while $body =~ s/^:(\w*)\(1?\)\[(.*)\]\z/$2/s;
+        Pugs::Compiler::Regex->reinstall( $name => $body, \%sub_opts );
     }
 
     my %opts = (grammar => __PACKAGE__);
     ($1 and $opts{$1} = 1) while $rule_text =~ s/^:(\w*)\(1?\)\[(.*)\]\z/$2/s;
+
+    # L<S05/Modifiers/"The C<:ratchet> modifier also implies that the anchoring">
+    if ( $opts{ratchet} ) {
+        $rule_text  = "^$rule_text" unless $opts{p} or $opts{pos};
+        $rule_text .= '$'           unless $opts{c} or $opts{continue};
+    }
 
     local $SIG{__WARN__} = sub { 1 };
 
@@ -34,8 +44,10 @@ sub __CMD__ {
     local $| = 1;
 
     # Command line shell interface - compatible with run_pge.pir
-    binmode STDIN, ':bytes:utf8';
-    binmode STDOUT, ':bytes:utf8';
+    if ($] >= 5.007) {
+        binmode STDIN, ':utf8';
+        binmode STDOUT, ':utf8';
+    }
 
     my @subrules;
     while (<STDIN>) {

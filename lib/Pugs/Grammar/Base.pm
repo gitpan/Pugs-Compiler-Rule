@@ -25,6 +25,16 @@ sub no_match {
     '.' 
 )->code;
 
+# <<word
+*_wb_left = Pugs::Compiler::RegexPerl5->compile( 
+    '\b(?=\w)' 
+)->code;
+
+# word>>
+*_wb_right = Pugs::Compiler::RegexPerl5->compile( 
+    '(?<=\w)\b' 
+)->code;
+
 # specced methods
 
 sub at {
@@ -43,12 +53,12 @@ sub at {
 }
 
 sub prior {
-    warn "Error: <prior> is undefined" 
+    die "Error: <prior> is undefined" 
         unless defined $main::_V6_PRIOR_;
 
-    use warnings FATAL => 'recursion';
-    @_ = @_[0, 1, 2, 2];
-    goto &{$main::_V6_PRIOR_};  # XXX fix parameter list
+    my $prior = $main::_V6_PRIOR_;
+    ## local $main::_V6_PRIOR_;
+    $prior->(@_[0, 1, 2, 2]);  # XXX fix parameter list
 }
 
 *null = Pugs::Compiler::RegexPerl5->compile( 
@@ -57,6 +67,11 @@ sub prior {
 
 *ws = Pugs::Compiler::RegexPerl5->compile( 
     '(?:(?<!\w)|(?!\w)|\s)\s*' 
+)->code;
+
+# <wb> = word boundary - from regex_tests
+*wb = Pugs::Compiler::RegexPerl5->compile( 
+    '\b' 
 )->code;
 
 *ident = Pugs::Compiler::RegexPerl5->compile( 
