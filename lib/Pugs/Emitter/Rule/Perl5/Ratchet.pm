@@ -168,6 +168,29 @@ sub quant {
     # TODO: *? +? ??
     # TODO: *+ ++ ?+
     # TODO: quantifier + capture creates Array
+    #warn Dumper( $quantifier );
+    if ( ref( $quantifier ) eq 'HASH' ) 
+    {
+        my $code = $quantifier->{closure};
+        if ( ref( $code ) ) {
+            if ( defined $Pugs::Compiler::Perl6::VERSION ) {
+                #print " perl6 compiler is loaded \n";
+                $code = Pugs::Emitter::Perl6::Perl5::emit( 'grammar', $code, 'self' );
+            } 
+        };
+        my @count = eval $code;
+        #warn "code: $code = [ @count ]";
+        
+        die "quantifier not implemented: " . Dumper( $quantifier )
+            if @count ne 1
+            || $count[0] == 0;
+        
+        return
+            "$_[1] (\n " .
+            join( ' && ', ($rul) x $count[0] ) .
+            "\n" .
+            "$_[1] ) $ws3";
+    }
     return 
         "$_[1] (\n$rul\n" .
         "$_[1] || ( \$bool = 1 )\n" .
@@ -213,6 +236,38 @@ $_[1]     && ",
 $_[1]   )
 $_[1] )";
 }        
+sub alt1 { &alt }
+sub conjunctive {
+    my @s;
+    # print 'conjunctive: ';
+    my $count = $capture_count;
+    my $max = -1;
+    my $id = id();
+    for ( @{$_[0]} ) { 
+        $capture_count = $count;
+        my $tmp = emit_rule( $_, $_[1].'  ' );
+        # print ' ',$capture_count;
+        $max = $capture_count 
+            if $capture_count > $max;
+        push @s, $tmp if $tmp;   
+    }
+    $capture_count = $max;
+    # print " max = $capture_count\n";
+    return 
+        "$_[1] (
+$_[1]     ( \$pad{$id} = \$pos or 1 ) 
+$_[1]     && (
+" . join( "
+$_[1]     ) 
+$_[1]   && ( 
+$_[1]     ( ( \$bool = 1 ) && ( \$pos = \$pad{$id} ) or 1 ) 
+$_[1]     && ", 
+          @s 
+    ) . "
+$_[1]   )
+$_[1] )";
+}        
+sub conjunctive1 { &conjunctive }
 sub concat {
     my @s;
 
@@ -291,12 +346,7 @@ sub variable {
             our $id;
             our ${id}_sizes;
             unless ( $id ) {
-                my \$hash = " . 
-                ( $name =~ /::/ 
-                    ? "\\$name" 
-                    : "Pugs::Runtime::Regex::get_variable( '$name' )"
-                ) . 
-                ";
+                my \$hash = \\$name;
                 my \%sizes = map { length(\$_) => 1 } keys \%\$hash;
                 ${id}_sizes = [ sort { \$b <=> \$a } keys \%sizes ];
                 " . #print \"sizes: \@${id}_sizes\\n\";
@@ -337,11 +387,40 @@ sub variable {
     return call_constant( $value, $_[1] );
 }
 sub special_char {
-    my $char = substr($_[0],1);
+    my ($char, $data) = $_[0] =~ /^.(.)(.*)/;
+
+    return call_perl5( '\\N{$data}', $_[1] )
+        if $char eq 'c';
+    return call_perl5( '(?!\\N{$data}).', $_[1] )
+        if $char eq 'C';
+
+    return call_perl5( '\\x{'.$data.'}', $_[1] )
+        if $char eq 'x';
+    return call_perl5( '(?!\\x{'.$data.'}).', $_[1] )
+        if $char eq 'X';
+
+    return special_char( sprintf("\\x%X", oct($data) ) )
+        if $char eq 'o';
+    return special_char( sprintf("\\X%X", oct($data) ) )
+        if $char eq 'O';
+
     return  call_perl5( '(?:\n\r?|\r\n?)', $_[1] )
         if $char eq 'n';
     return  call_perl5( '(?!\n\r?|\r\n?).', $_[1] )
         if $char eq 'N';
+
+    # XXX - Infinite loop in pugs stdrules.t
+    #return metasyntax( '?_horizontal_ws', $_[1] )
+    return call_perl5( '[\x20\x09]' ) 
+        if $char eq 'h';
+    return call_perl5( '[^\x20\x09]' ) 
+        if $char eq 'H';
+    #return metasyntax( '?_vertical_ws', $_[1] )
+    return call_perl5( '[\x0A\x0D]' ) 
+        if $char eq 'v';
+    return call_perl5( '[^\x0A\x0D]' ) 
+        if $char eq 'V';
+
     for ( qw( r n t e f w d s ) ) {
         return call_perl5(   "\\$_",  $_[1] ) if $char eq $_;
         return call_perl5( "[^\\$_]", $_[1] ) if $char eq uc($_);
@@ -568,7 +647,7 @@ sub named_capture {
 }
 sub negate {
     my $program = $_[0];
-    # print Dumper($_[0]);
+    #print "Negate: ", Dumper($_[0]);
     $program = emit_rule( $program, $_[1].'        ' )
         if ref( $program );
     return "$_[1] do{ 
@@ -759,13 +838,27 @@ sub metasyntax {
         return;
     }
     if ( $prefix =~ /[-+[]/ ) {   # character class 
+        #die "SET ratchet: $cmd\n";
         $cmd =~ s/\.\./-/g;
-        if ( $prefix eq '-' ) {
-           $cmd = '[^' . substr($cmd, 2);
+        if ( $cmd =~ /^ - \s* \[ (.*) /x ) {
+           $cmd = '[^' . $1;
         } 
-        elsif ( $prefix eq '+' ) {
-           $cmd = substr($cmd, 2);
-        }
+        elsif ( $cmd =~ /^ - \s* (.*) /x ) {
+           #$cmd = substr($cmd, 1);
+           my $name = $1;
+           $cmd = ( $name =~ /^is/ )
+                ? "\\P{$name}"
+                : "[^[:$name:]]";
+        } 
+        elsif ( $cmd =~ /^ \+ \s* \[ (.*) /x ) {
+           $cmd = '[' . $1;
+	    }
+        elsif ( $cmd =~ /^ \+ \s* (.*) /x ) {
+           my $name = $1;
+           $cmd = ( $name =~ /^is/ )
+                ? "\\p{$name}"
+                : "[[:$name:]]";
+        } 
         $cmd =~ s/\s+|\n//g;
         # XXX <[^a]> means [\^a] instead of [^a] in perl5re
         return call_perl5($cmd, $_[1]);

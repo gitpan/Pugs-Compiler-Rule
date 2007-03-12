@@ -16,11 +16,7 @@ use v6-alpha;
         use Pugs::Runtime::Regex;
         our %rule_terms;
         our %variables;
-    - replace:
-            $named{'concat'} = $match;
-       - with:
-            push @{ $named{'concat'} }, $match;
-
+        
 =cut
 
 grammar Pugs::Grammar::Rule;
@@ -61,16 +57,41 @@ token ident {
     [ <?alnum> | _ | <'::'> ]+
 }
 
+# after '\\'
+token special_char {  
+        | ( c | C ) \[ ( [<alnum>|\s|<';'>|<'('>|<')'>|<'-'>]+) \]
+          #  \c[LATIN LETTER A] 
+          { return { special_char => '\\' ~ $0 ~ $1 , } } 
+
+        | [ x | X ] <xdigit>+
+          #  \x0021    \X0021
+          { return { special_char => '\\' ~ $/ , } } 
+        | ( x | X ) \[ (<xdigit>+) \]
+          #  \x[0021]  \X[0021]
+          { return { special_char => '\\' ~ $0 ~ $1 , } } 
+
+        | [ o | O ] \d+
+          #  \o0021    \O0021
+          { return { special_char => '\\' ~ $/ , } } 
+        | ( o | O ) \[ (\d+) \]
+          #  \o[0021]  \O[0021]
+          { return { special_char => '\\' ~ $0 ~ $1 , } } 
+
+        | .
+          #  \e  \E
+          { return { special_char => '\\' ~ $/ , } } 
+}
+
 token literal {
     [ 
-    |  \\ .
+    |  \\ <special_char>
     |  <-[ \' ]> 
     ]*
 }
 
 token metasyntax {
     [ 
-    |  \\ .
+    |  \\ <special_char>
     |  \'  <?literal>     \'
     |  \{  <?string_code>        \}
     |  \<  <?metasyntax>  \>
@@ -79,10 +100,22 @@ token metasyntax {
     { return { metasyntax => $$/ ,} }
 }
 
+token char_range {
+    [ 
+    |  \\ <special_char>
+    |  <-[ \] ]> 
+    ]+ 
+}
+
+token char_class {
+    |  <?ident>
+    |  \[  <?char_range>  \]
+}
+
 token string_code {
     # bootstrap "code"
     [ 
-    |  \\ .
+    |  \\ <special_char>
     |  \'  <?literal>     \'
     |  \{  <?string_code> \}
     |  <-[ \} ]> 
@@ -160,7 +193,109 @@ token named_capture_body {
     },
     '<!' => token {
         <metasyntax> \> 
-        { return { negate  => :$$<metasyntax>, } }
+        { return { negate  => $$<metasyntax>, } }
+    },
+    '<+' => token {
+        $<c0> := <char_class>
+
+        [
+           \+  $<c1> := <char_class> 
+           \>
+
+           { return  
+
+# [<before <?alpha>>|<before <?digit>>].
+# print "Ast: ", Dumper( Pugs::Grammar::Rule->rule( '[<before <?alpha>>|<before <?digit>>].' )->() );
+
+{
+  'concat' => [
+    {
+      'quant' => {
+        'ws2' => '',
+        'greedy' => '',
+        'quant' => '',
+        'ws1' => '',
+        'ws3' => '',
+        'term' => {
+          'alt' => [
+            {
+              'quant' => {
+                'ws2' => '',
+                'greedy' => '',
+                'quant' => '',
+                'ws1' => '',
+                'ws3' => '',
+                'term' => {
+                  'before' => {
+                    'rule' => {
+                      'quant' => {
+                        'ws2' => '',
+                        'greedy' => '',
+                        'quant' => '',
+                        'ws1' => '',
+                        'ws3' => '',
+                        'term' => {
+                          'metasyntax' => '+' ~ $<c0>
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              'quant' => {
+                'ws2' => '',
+                'greedy' => '',
+                'quant' => '',
+                'ws1' => '',
+                'ws3' => '',
+                'term' => {
+                  'before' => {
+                    'rule' => {
+                      'quant' => {
+                        'ws2' => '',
+                        'greedy' => '',
+                        'quant' => '',
+                        'ws1' => '',
+                        'ws3' => '',
+                        'term' => {
+                          'metasyntax' => '+' ~ $<c1>
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      'quant' => {
+        'ws2' => '',
+        'greedy' => '',
+        'quant' => '',
+        'ws1' => '',
+        'ws3' => '',
+        'term' => {
+          'dot' => 1
+        }
+      }
+    }
+  ]
+}
+
+           }
+
+        |  \> 
+           { return { metasyntax => ~ $<c0> } }
+        ]
+    },
+    '<-' => token {
+        <char_class> \>
+        { return { metasyntax => '-' ~ $<char_class> } }
     },
     '<' => token { 
         <metasyntax>  \>
@@ -171,8 +306,8 @@ token named_capture_body {
         { return { closure => $$<parsed_code> ,} }
     },
     '\\' => token {  
-        .
-        { return { special_char => '\\' ~ $/ , } } 
+        <special_char>
+        { return $$<special_char> }
     },
     '.' => token { 
         { return { 'dot' => 1 ,} }
@@ -192,22 +327,41 @@ token named_capture_body {
     '^'   => token { { return { colon => '^'  ,} } },
     
     '>>'  => token { { return { colon => '>>' ,} } },
-    '»'   => token { { return { colon => '>>'  ,} } },
+    '»'   => token { { return { colon => '>>' ,} } },
 
-    # workaround: Module::Compile doesn't like /'<<'/
-    '<'~'<'  => token { { return { colon => '<'~'<' ,} } },
-    '«'   => token { { return { colon => '<'~'<'  ,} } },
+    '<<'  => token { { return { colon => '<<' ,} } },
+    '«'   => token { { return { colon => '<<' ,} } },
 
-    ':i'           => token { { return { modifier => 'ignorecase'  ,} } },
-    ':ignorecase'  => token { { return { modifier => 'ignorecase'  ,} } },
-    ':s'           => token { { return { modifier => 'sigspace'  ,} } },
-    ':sigspace'    => token { { return { modifier => 'sigspace'  ,} } },
-    ':P5'          => token { { return { modifier => 'Perl5'  ,} } },
-    ':Perl5'       => token { { return { modifier => 'Perl5'  ,} } },
-    ':bytes'       => token { { return { modifier => 'bytes'  ,} } },
-    ':codes'       => token { { return { modifier => 'codes'  ,} } },
-    ':graphs'      => token { { return { modifier => 'graphs' ,} } },
-    ':langs'       => token { { return { modifier => 'langs'  ,} } },
+    ':i'  => token { 
+        <?ws> <rule> 
+        { return { modifier => { modifier => 'ignorecase', :$$<rule>, } } } },
+    ':ignorecase'  => token { 
+        <?ws> <rule> 
+        { return { modifier => { modifier => 'ignorecase', :$$<rule>, } } } },
+    ':s'  => token { 
+        <?ws> <rule> 
+        { return { modifier => 'sigspace',   :$$<rule>, } } },
+    ':sigspace'    => token { 
+        <?ws> <rule> 
+        { return { modifier => 'sigspace',   :$$<rule>, } } },
+    ':P5' => token { 
+        <?ws> <rule> 
+        { return { modifier => 'Perl5',  :$$<rule>, } } },
+    ':Perl5'       => token { 
+        <?ws> <rule> 
+        { return { modifier => 'Perl5',  :$$<rule>, } } },
+    ':bytes'       => token { 
+        <?ws> <rule> 
+        { return { modifier => 'bytes',  :$$<rule>, } } },
+    ':codes'       => token { 
+        <?ws> <rule> 
+        { return { modifier => 'codes',  :$$<rule>, } } },
+    ':graphs'      => token { 
+        <?ws> <rule> 
+        { return { modifier => 'graphs', :$$<rule>, } } },
+    ':langs'       => token { 
+        <?ws> <rule> 
+        { return { modifier => 'langs',  :$$<rule>, } } },
 
 ); # /%rule_terms
     
@@ -245,7 +399,7 @@ token quant {
 
 token quantifier {
     $<ws1>   := (<?ws>?)
-    <!before  <[   \} \] \) \>   ]> >
+    <!before  <[   \} \] \)   ]> >
     <term> 
     $<ws2>   := (<?ws>?)
     <quant>
@@ -274,17 +428,68 @@ token concat {
     }
 }
 
-token rule {
-    [ <?ws>? \| ]?
+token conjunctive1 {
+    [ <?ws>? \& ]?
     
-    <concat>
+    <concat>**{1}
     [
-        \|  <concat> 
+        \&  <concat> 
     ]*
     
     {             
       use v5;
         my @a = map {  $$_  }  @{ $::_V6_MATCH_->{'concat'} };
+        return { conjunctive1 => \@a ,}  if scalar @a > 1;
+        return $a[0];
+      use v6;
+    }
+}
+
+token disjunctive1 {
+    [ <?ws>? \| ]?
+    
+    <conjunctive1>**{1}
+    [
+        \|  <conjunctive1> 
+    ]*
+    
+    {             
+      use v5;
+        my @a = map {  $$_  }  @{ $::_V6_MATCH_->{'conjunctive1'} };
+        return { alt1 => \@a ,}  if scalar @a > 1;
+        return $a[0];
+      use v6;
+    }
+}
+
+token conjunctive {
+    [ <?ws>? \& \& ]?
+    
+    <disjunctive1>**{1}
+    [
+        \& \& <disjunctive1> 
+    ]*
+    
+    {             
+      use v5;
+        my @a = map {  $$_  }  @{ $::_V6_MATCH_->{'disjunctive1'} };
+        return { conjunctive => \@a ,}  if scalar @a > 1;
+        return $a[0];
+      use v6;
+    }
+}
+
+token rule {
+    [ <?ws>? \| \| ]?
+    
+    <conjunctive>**{1}
+    [
+        \| \| <conjunctive> 
+    ]*
+    
+    {             
+      use v5;
+        my @a = map {  $$_  }  @{ $::_V6_MATCH_->{'conjunctive'} };
         return { alt => \@a ,}  if scalar @a > 1;
         return $a[0];
       use v6;

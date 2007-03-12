@@ -1,5 +1,5 @@
 
-use Test::More tests => 142;
+use Test::More tests => 145;
 use Data::Dumper;
 $Data::Dumper::Indent = 1;
 
@@ -330,6 +330,20 @@ use Pugs::Runtime::Match; # overload doesn't work without this ???
 }
 
 {
+    # not-alpha
+    my $rule = Pugs::Compiler::Token->compile('a<!alpha>.', { ratchet => 1 } );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    my $match = $rule->match( "ac" );
+    #print "Match: ", do{use Data::Dumper; Dumper($match)};
+    is( "$match", "", 'negated alpha' );
+
+    $match = $rule->match( "a!" );
+    #print "Source: ", $rule->{perl5};
+    #print "Match: ", do{use Data::Dumper; Dumper($match)};
+    is( "$match", "a!", 'negated alpha matches' );
+}
+
+{
     # $
     my $rule = Pugs::Compiler::Token->compile('a$', { ratchet => 1 } );
     my $match = $rule->match( "ab" );
@@ -559,6 +573,9 @@ use Pugs::Runtime::Match; # overload doesn't work without this ???
     ok( $match, 'true match' );
     is( "$match->{z}", "a", 'named capture on parentheses' );
     is( "$match->[0]", "b", 'named capture on parentheses not positioned' );
+    
+    #print Dumper( $match->[0]->from ), "\n";
+    #print Dumper( $match->[0]->to ), "\n";
 }
 
 {
@@ -618,7 +635,7 @@ use Pugs::Runtime::Match; # overload doesn't work without this ???
 =cut
     my $match;
     my $v = 0;
-    my %test = (
+    %Test123::test = (
         if =>    2,        # fail (number, not '1')
         iff =>   1,        # match (longer than 'if')
         until => Pugs::Compiler::Token->compile('(a.a)'),  
@@ -626,7 +643,7 @@ use Pugs::Runtime::Match; # overload doesn't work without this ???
         use =>   sub { $v = 1 },   
                            # closure - print "use()"
     );   
-    $rule1 = Pugs::Compiler::Token->compile('%test 123');
+    $rule1 = Pugs::Compiler::Token->compile('%Test123::test 123');
     
     $match = $rule1->match("iff123");
     is($match,'iff123',"Matched hash{iff}");
@@ -648,7 +665,7 @@ use Pugs::Runtime::Match; # overload doesn't work without this ???
 {
     my $match;
     my $v = 0;
-    my %test = (
+    %Test123::test = (
         if =>    2,        # fail (number, not '1')
         iff =>   1,        # match (longer than 'if')
         until => Pugs::Compiler::Token->compile('
@@ -665,13 +682,13 @@ use Pugs::Runtime::Match; # overload doesn't work without this ???
         '' =>    Pugs::Compiler::Token->compile('other'),  
                            # default subrule - match "other"
     );   
-    $rule1 = Pugs::Compiler::Token->compile('<%test> 123');
-    #print "<<< ", Pugs::Compiler::Token->compile('<%test> 123')->{perl5}, ">>>";
+    $rule1 = Pugs::Compiler::Token->compile('<%Test123::test> 123');
+    #print "<<< ", Pugs::Compiler::Token->compile('<%Test123::test> 123')->{perl5}, ">>>";
     
     $match = $rule1->match("iff123");
     is($match,'iff123',"Matched hash{iff}");
     #print Dumper( $match->{test}->data );
-    is($match->{test},'',"Matched hash{iff} capture");
+    is($match->{'Test123::test'},'',"Matched hash{iff} capture");
 
     $match = $rule1->match("if123");
     is($match,'',"fail hash{if} - value != 1");
@@ -685,26 +702,26 @@ use Pugs::Runtime::Match; # overload doesn't work without this ???
     is($match->(),'untilaba123',"subrule hash{until} - 2");
 
     # is($match->{test},'aba',"Matched hash{until} capture");
-    is("" . $match->{test}, 42, "Matched hash{until} capture handles stringification");
+    is("" . $match->{'Test123::test'}, 42, "Matched hash{until} capture handles stringification");
 
     #print "\$/ ",Dumper($match->data);
     #print "\$/{test} ",Dumper($match->{test}->data);
-    is($match->{test}(), 42, "Matched hash{until} return object");
+    is( ${ $match->{'Test123::test'} }, 42, "Matched hash{until} return object");
 
     $match = $rule1->match("other123");
     is($match,'other123',"default subrule");
 
 }
 
-TODO:
+#TODO:
 {
-    local $TODO = "failing hash rule interpolation inside itself";
+    #local $TODO = "failing hash rule interpolation inside itself";
     my $match;
-    my %test = (
-        rule1 => Pugs::Compiler::Token->compile('xx %test yy'),  
+    %Test123::test = (
+        rule1 => Pugs::Compiler::Token->compile('xx %Test123::test yy'),  
         rule2 => Pugs::Compiler::Token->compile('abc'),   
     );   
-    $rule1 = Pugs::Compiler::Token->compile('%test 123');
+    $rule1 = Pugs::Compiler::Token->compile('%Test123::test 123');
     #print $rule1->perl5;
     $match = $rule1->match("rule1xxrule2abcyy123");
     is($match,'rule1xxrule2abcyy123',"Matched hash inside hash");
@@ -963,9 +980,14 @@ TODO:
     #print "Source: ", $rule->{perl5};
     #print "Match: ", $match->perl;
     is( $$match, "xyz", 'xyz>>' );
-TODO:
-    {
-    local $TODO = 'the parser ignores />>/, it looks to be a Module::Compile bug';
     is( $match->from > 0 , 1, 'xyz>>' );
-    }
+}
+{
+    my $rule = Pugs::Compiler::Token->compile( 'x & <alpha>' );
+    my $match = $rule->match( "xyza xyz" );
+    #print "Ast: ", do{use Data::Dumper; Dumper($rule->{ast})};
+    #print "Source: ", $rule->{perl5};
+    #print "Match: ", $match->perl;
+    is( $$match, "x", 'x & <alpha>' );
+    #is( $match->from > 0 , 1, 'xyz>>' );
 }

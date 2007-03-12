@@ -48,6 +48,12 @@ sub concat {
         my @state = $_[1] ? @{$_[1]} : ( undef, undef );
         #print "enter state ",Dumper(\@state);
         my $m2;
+        my $redo_count = 0;  
+            # XXX - workaround for t/regex/from_perl6_rules/capture.t test #38:
+            # regex single { o | k | e };
+            # # ...
+            # ok(!( "bokeper" ~~ m/(<?single>) ($0)/ ), 'Failed positional backref');
+
         do {
 
             my %param1 = defined $_[7] ? %{$_[7]} : ();
@@ -56,12 +62,14 @@ sub concat {
             $nodes->[0]->( $_[0], $state[0], @_[2..7] );
             return if ! $_[3] 
                    || $_[3]->data->{abort};
-            my $is_empty = $_[3]->from == $_[3]->to;
 
-            if ( $param1{was_empty} && $is_empty ) {
-                # perl5 perlre says "the following match after a zero-length match
+            my $is_empty = ( $_[3]->from == $_[3]->to );
+            #    && ( $param1{was_empty} )
+            #    ; # fix a problem with '^'
+            if ( $is_empty && $param1{was_empty} ) {
+                #    # perl5 perlre says "the following match after a zero-length match
                 #   is prohibited to have a length of zero"
-                return;
+                return unless $_[3]->from == 0;
             }
 
             my $param = { ( defined $_[7] ? %{$_[7]} : () ), 
@@ -74,14 +82,18 @@ sub concat {
             #print "concat 2: "," \n";
             $nodes->[1]->( $_[0], $state[1], $_[2], $m2, 
                            $_[4], $_[3]->to, $_[6], $param );
+            
+              #return if $is_empty && $m2->from == $m2->to; 
             $state[1] = $m2->state;
             $state[0] = $next_state unless $state[1];
             #print "concat 3: "," \n";
             #print "return state ",Dumper(\@state);
 
-        } while ! $m2 && 
-                ! $m2->data->{abort} &&
-                defined $state[0]; 
+        } while    ! $m2 
+                && ! $m2->data->{abort} 
+                && defined $state[0]
+                && $redo_count++ < 512
+                ; 
 
         # push capture data
         # print "Concat positional: ", Dumper( $_[3]->data->{match}, $m2->data->{match} );
@@ -157,12 +169,24 @@ sub try_method {
     return eval $sub;
 }
 
+
+sub ignorecase { 
+    my $sub = shift;
+    no warnings qw( uninitialized );
+    return sub {
+        my %param = ( ( defined $_[7] ? %{$_[7]} : () ), ignorecase => 1 );
+        $sub->( @_[0..6], \%param );
+    }
+}
+
 sub constant { 
     my $const = shift;
     my $lconst = length( $const );
     no warnings qw( uninitialized );
     return sub {
-        my $bool = $const eq substr( $_[0], $_[5], $lconst );
+        my $bool = $_[7]{ignorecase}
+            ? lc( $const ) eq lc( substr( $_[0], $_[5], $lconst ) )
+            : $const eq substr( $_[0], $_[5], $lconst );
         $_[3] = Pugs::Runtime::Match->new({ 
                 bool  => \$bool,
                 str   => \$_[0],
@@ -175,10 +199,22 @@ sub constant {
 }
 
 sub perl5 {
-    my $rx = qr(^($_[0]))s;
+    my $rx;
     no warnings qw( uninitialized );
+    { 
+        local $@;
+        $rx = eval " use charnames ':full'; qr(^($_[0]))s ";
+        #print "regex perl5<< $_[0] >>\n";
+        print "Error in perl5 regex: << $_[0] >> \n$@\n"
+            if $@;
+        #die "Error in perl5 regex: $_[0]"
+        #    if $@;
+    }
     return sub {
-        my $bool = substr( $_[0], $_[5] ) =~ m/$rx/;
+        #use charnames ':full';
+        my $bool = $_[7]{ignorecase}
+            ? substr( $_[0], $_[5] ) =~ m/(?i)$rx/
+            : substr( $_[0], $_[5] ) =~ m/$rx/;
         $_[3] = Pugs::Runtime::Match->new({ 
                 bool  => \$bool,
                 str   => \$_[0],
@@ -407,6 +443,27 @@ sub at_end_of_string {
                 abort => 0,
             });
     }
+};
+
+# experimental!
+sub negate { 
+    my $op = shift;
+    return sub {
+        #my $str = $_[0];
+        my $match = $op->( @_ );
+        my $bool = ! $match;
+
+        $_[3] = Pugs::Runtime::Match->new({ 
+                bool  => \( $bool ),
+                str   => \$_[0],
+                from  => \(0 + $_[5]),
+                to    => \(0 + $_[5]),
+                named => {},
+                match => [],
+                abort => 0,
+            });
+
+    };
 };
 
 # ------- higher-order ruleops
@@ -735,18 +792,6 @@ sub fail {
     );
 };
 
-# experimental!
-sub negate { 
-    my $op = shift;
-    return sub {
-        #my $str = $_[0];
-        my $match = $op->( @_ );
-        return if $match->{bool};
-        return { bool => \1,
-                 #tail => $_[0],
-               }
-    };
-};
 =cut
 
 # experimental!

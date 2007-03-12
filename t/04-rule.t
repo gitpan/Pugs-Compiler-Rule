@@ -1,5 +1,5 @@
 
-use Test::More tests => 52;
+use Test::More tests => 78;
 use Data::Dumper;
 $Data::Dumper::Indent = 1;
 
@@ -52,6 +52,8 @@ no warnings qw( once );
     is( "$match->[0]", "xy", 'stringify 2' );
     is( "$match->[0][0]", "x", 'stringify 3' );
     is( "$match->[1]", "z", 'stringify 4' );
+    is $match->[0]->from, 0;
+    is $match->[0]->to, 2;
 }
 
 {
@@ -174,9 +176,15 @@ no warnings qw( once );
     # --- It should the same as /a? b g?/
     # 1) spaces should not make difference
     # 2) the other way, it should be as /[a?[bg]]?/
+    #warn "Ast: ", do{use Data::Dumper; Dumper( Pugs::Grammar::Rule->rule( 'a?bg?' )->()  )};
     my $rule = Pugs::Compiler::Regex->compile( 'a?bg?');
     my $match = $rule->match("cdtbprw");
     is("$match","b",'"a?bg?" equals "a? b g?".');
+    $match = $rule->match("a");
+    ok !$match->bool, "'b' is mandatory here";
+    $match = $rule->match("ab");
+    ok $match->bool;
+    is $match->str, 'ab';
 }
 
 {
@@ -199,9 +207,28 @@ no warnings qw( once );
         } ');
     #print "rule: ", $rule->perl;
     my $match = $rule->match("sometext");
-    #print Dumper($match);
+    #warn Dumper($match);
     my $capture = $match->();
+    #warn Dumper($capture);
     is($capture->{a},'sometext','simple capture');
+}
+
+{
+    # XXX - is $() working? -- now it's called '$$match'
+    # capture
+    my $rule = Pugs::Compiler::Regex->compile('
+        some (text) 
+        { 
+            #print $_[0]->perl; 
+            return $_[0]; 
+        } ');
+    #print "rule: ", $rule->perl;
+    my $match = $rule->match("sometext");
+    #warn Dumper($match);
+    my $capture = $match->();
+    #warn Dumper($capture);
+    is($match, $capture, 'simple capture');
+    $match->{capture} = undef; # break self-reference.
 }
 
 {
@@ -236,6 +263,7 @@ no warnings qw( once );
     #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
     #print "Match: ", $match->perl;
     is( "$match", "", 'at-start - not' );
+    ok( !$match->bool );
 
     $match = $rule->match( "x\n" );
     #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
@@ -249,6 +277,7 @@ no warnings qw( once );
     #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
     #print "Match: ", $match->perl;
     is( "$match", "", 'at-end - not' );
+    ok( !$match->bool );
 
     $match = $rule->match( "\nx" );
     #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
@@ -262,6 +291,7 @@ no warnings qw( once );
     #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
     #print "Match: ", $match->perl;
     is( "$match", "", 'at-line-start - not' );
+    ok( !$match->bool );
 
     $match = $rule->match( "\nxy\n" );
     #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
@@ -377,7 +407,19 @@ no warnings qw( once );
     my $match = $rule->match( "xy" );
     #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
     #print "Match: ", $match->perl;
-    is( "$match", "x", 'ident' );
+    is( "$match", "x", '<at(1)>' );
+}
+
+{
+    my $rule = Pugs::Compiler::Regex->compile( '<at(1)> x' );
+    my $match = $rule->match( "xy" );
+    #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
+    #print "Match: ", $match->perl;
+    ok !$match->bool;
+    $match = $rule->match( "xx" );
+    ok $match->bool, '<at(1)> works';
+    is $match->from, 1;
+    is $match->to, 2;
 }
 
 {
@@ -394,4 +436,47 @@ no warnings qw( once );
     #print "Source: ", do{use Data::Dumper; Dumper($rule->{perl5})};
     #print "Match: ", $match->perl;
     is( $$match, "x", 'doesn\'t loop forever' );
+    $match = $rule->match( "xxx" );
+    ok $match->bool;
+    is $match->str, 'x';
+}
+
+{
+    # negated rules
+    my $rule = Pugs::Compiler::Regex->compile( '<!alpha>.' );
+    my $match = $rule->match( "xy12" );
+    is( "$match", "1", 'negated rule <!alpha>' );
+}
+
+{
+    # negated rules
+    my $rule = Pugs::Compiler::Regex->compile( '<!alpha> x' );
+    my $match = $rule->match( "xy12" );
+    ok !$match->bool, '<!alpha> x never matches';
+}
+
+{
+    # compile-time external ignorecase
+    my $rule = Pugs::Compiler::Regex->compile( 'aBc', { ignorecase => 1 } );
+    #print $rule->perl;
+    ok $rule->match( "AbC" )->bool, 'mixed case matches';
+    ok $rule->match( "abc" )->bool, 'lower case matches';
+    ok $rule->match( "ABC" )->bool, 'upper case matches';
+}
+
+{
+    # run-time external ignorecase
+    my $rule = Pugs::Compiler::Regex->compile( 'aBc' );
+    ok $rule->match( "AbC", { ignorecase => 1 } )->bool, 'mixed case matches';
+    ok $rule->match( "abc", { ignorecase => 1 } )->bool, 'lower case matches';
+    ok $rule->match( "ABC", { ignorecase => 1 } )->bool, 'upper case matches';
+}
+
+{
+    # internal ignorecase
+    my $rule = Pugs::Compiler::Regex->compile( ':i aBc' );
+    #print $rule->perl;
+    ok $rule->match( "AbC" )->bool, 'internal ignorecase; mixed case matches';
+    ok $rule->match( "abc" )->bool, 'internal ignorecase; lower case matches';
+    ok $rule->match( "ABC" )->bool, 'internal ignorecase; upper case matches';
 }

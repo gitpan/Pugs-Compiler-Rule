@@ -1,5 +1,5 @@
 package Pugs::Compiler::Rule;
-$Pugs::Compiler::Rule::VERSION = '0.20';
+$Pugs::Compiler::Rule::VERSION = '0.21';
 
 # Documentation in the __END__
 use 5.006;
@@ -140,6 +140,10 @@ Specify a string position to match. Starts in zero. Defaults to C<undef>, which 
 =item * sigspace => 1
 
 Whitespace is significant. Defaults to 1 in Rules.
+
+=item * ignorecase => 1
+
+Ignore character case. The default is significant case.
 
 =item * Perl5 => 1
 

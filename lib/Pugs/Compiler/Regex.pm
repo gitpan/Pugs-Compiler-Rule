@@ -14,6 +14,9 @@ use Pugs::Emitter::Rule::Perl5::Ratchet;
 
 use Pugs::Runtime::Regex;
 
+# complete the dependency circularity
+push @Pugs::Grammar::Rule::ISA, 'Pugs::Grammar::Base';
+
 use Carp 'croak';
 use Data::Dumper;
 use Symbol 'qualify_to_ref';
@@ -58,6 +61,9 @@ sub compile {
                         0;
     $self->{continue} = delete $param->{continue} ||
                         delete $param->{c}        || 
+                        0;
+    $self->{ignorecase} = delete $param->{ignorecase} ||
+                        delete $param->{i}        || 
                         0;
     delete $param->{s};
 
@@ -161,7 +167,13 @@ sub match {
             ? $flags->{c} 
             : defined $flags->{continue} 
             ? $flags->{continue} 
-            : $rule->{c};
+            : $rule->{continue};
+
+    my $ignorecase = defined $flags->{i} 
+            ? $flags->{i} 
+            : defined $flags->{ignorecase} 
+            ? $flags->{ignorecase} 
+            : $rule->{ignorecase};
 
         #print "flag p";
         #print "match: grammar $rule->{grammar}, $str, %$flags\n";
@@ -179,6 +191,7 @@ sub match {
         %args = %{$flags->{args}} if defined $flags && defined $flags->{args};
         $args{p} = $p;
         $args{continue} = $continue;
+        $args{ignorecase} = $ignorecase;
         
         #print "calling code with ",Dumper([ $grammar,$str, $state,\%args ] );
         my $match = $rule->{code}( 
@@ -230,6 +243,7 @@ sub perl5 {
         "  ratchet "  .  "=> q(" . _str( $self->{ratchet} )  . "),\n" . 
         "  p "        .  "=> " . _str( $self->{p} )        . ",\n" . 
         "  sigspace " .  "=> q(" . _str( $self->{sigspace} ) . "),\n" . 
+        "  ignorecase ". "=> q(" . _str( $self->{ignorecase} )."),\n" . 
         "  code "     .  "=> "   . $self->{perl5}    . ",\n" . 
         "  perl5 "    .  "=> q(" . _quot( $self->{perl5} )  . "), }, " . 
         "q(" . ref($self) . ")";

@@ -32,6 +32,27 @@ $tab }
 ";
 }
 
+sub call_subrule_no_capture {
+    my ( $subrule, $tab, @param ) = @_;
+    $subrule = "\$_[4]->" . $subrule unless $subrule =~ / :: | \. | -> /x;
+    $subrule =~ s/\./->/;   # XXX - source filter
+
+    push @param, 1 if @param == 1;  # odd number of elements in hash
+    #print "PARAM: ",Dumper(@param);
+
+    return 
+"$tab sub{ 
+$tab     my \$prior = \$::_V6_PRIOR_;
+$tab     my \$param = { \%{ \$_[7] || {} }, args => {" . 
+            join(", ",@param) . "} };
+$tab     \$_[3] = $subrule( \$_[0], \$param, \$_[3],  );
+$tab     \$_[3]->data->{match} = [];
+$tab     \$_[3]->data->{named} = {};
+$tab     \$::_V6_PRIOR_ = \$prior;
+$tab }
+";
+}
+
 sub emit {
     my ($grammar, $ast) = @_;
     # runtime parameters: $grammar, $string, $state, $arg_list
@@ -41,6 +62,7 @@ sub emit {
     local %capture_seen = ();
     #print "emit capture_to_array $capture_to_array\n";
     # print "emit: ", Dumper($ast);
+    #die emit_rule( $ast, '    ' );
     
     return 
 "do {
@@ -148,7 +170,18 @@ sub non_capturing_group {
 sub quant {
     my $term = $_[0]->{'term'};
     my $quantifier = $_[0]->{quant}  || '';
-    my $greedy     = $_[0]->{greedy} || '';   # + ?    
+    my $greedy     = $_[0]->{greedy} || '';   # + ?   
+    
+    if ( ref( $quantifier ) eq 'HASH' ) 
+    {
+        die "quantifier not implemented: " . Dumper( $quantifier );
+
+        #return 
+        #    "$_[1] concat(\n" .
+        #    join( ',', ($rul) x $count ) .
+        #    "$_[1] )\n";
+    }
+       
     my $quant = $quantifier . $greedy;
     my $sub = { 
             '*' =>'greedy_star',     
@@ -178,7 +211,7 @@ sub quant {
 }        
 sub alt {
     my @s;
-    
+    # print "Alt: ", Dumper($_[0]);
     my $count = $capture_count;
     my $max = -1;
     for ( @{$_[0]} ) { 
@@ -203,6 +236,7 @@ sub alt {
            join( ',', @s ) .
            "$_[1] ] )\n";
 }        
+sub alt1 { &alt }
 sub concat {
     my @s;
     for ( @{$_[0]} ) { 
@@ -246,7 +280,8 @@ sub variable {
         }
     }
     
-    $value = join('', eval $name) if $name =~ /^\@/;
+    # ??? $value = join('', eval $name) if $name =~ /^\@/;
+
     if ( $name =~ /^%/ ) {
         # XXX - runtime or compile-time interpolation?
         return "$_[1] hash( \\$name )\n" if $name =~ /::/;
@@ -258,12 +293,39 @@ sub variable {
     return "$_[1] constant( '" . $value . "' )\n";
 }
 sub special_char {
-    my $char = substr($_[0],1);
+    my ($char, $data) = $_[0] =~ /^.(.)(.*)/;
 
-    return  "$_[1] perl5( '(?:\n\r?|\r\n?)' )\n"
+    return  "$_[1] perl5( '\\N{" . join( "}\\N{", split( /\s*;\s*/, $data ) ) . "}' )\n"
+        if $char eq 'c';
+    return  "$_[1] perl5( '(?!\\N{" . join( "}\\N{", split( /\s*;\s*/, $data ) ) . "})\\X' )\n"
+        if $char eq 'C';
+
+    return  "$_[1] perl5( '\\x{$data}' )\n"
+        if $char eq 'x';
+    return  "$_[1] perl5( '(?!\\x{$data})\\X' )\n"
+        if $char eq 'X';
+
+    return special_char( sprintf("\\x%X", oct($data) ) )
+        if $char eq 'o';
+    return special_char( sprintf("\\X%X", oct($data) ) )
+        if $char eq 'O';
+
+    return  "$_[1] perl5( '(?:\\n\\r?|\\r\\n?|\\x85|\\x{2028})' )\n"
         if $char eq 'n';
-    return  "$_[1] perl5( '(?!\n\r?|\r\n?).' )\n"
+    return  "$_[1] perl5( '(?!\\n\\r?|\\r\\n?|\\x85|\\x{2028})\\X' )\n"
         if $char eq 'N';
+
+    # XXX - Infinite loop in pugs stdrules.t
+    #return metasyntax( '?_horizontal_ws', $_[1] )
+    return "$_[1] perl5( '[\\x20\\x09]' )\n" 
+        if $char eq 'h';
+    return "$_[1] perl5( '[^\\x20\\x09]' )\n" 
+        if $char eq 'H';
+    #return metasyntax( '?_vertical_ws', $_[1] )
+    return "$_[1] perl5( '[\\x0A\\x0D]' )\n" 
+        if $char eq 'v';
+    return "$_[1] perl5( '[^\\x0A\\x0D]' )\n" 
+        if $char eq 'V';
 
     for ( qw( r n t e f w d s ) ) {
         return "$_[1] perl5( '\\$_' )\n" if $char eq $_;
@@ -380,7 +442,8 @@ sub named_capture {
         "$_[1] )\n";
 }
 sub negate {
-    my $program = $_[0]{rule};
+    my $program = $_[0];
+    #print "Negate: ", Dumper($_[0]);
     return 
         "$_[1] negate( \n" . 
         emit_rule($program, $_[1]) . 
@@ -412,7 +475,14 @@ sub colon {
     die "'$str' not implemented";
 }
 sub modifier {
-    my $str = $_[0];
+    my $str = $_[0]{modifier};
+    my $rule = $_[0]{rule};
+
+    return "$_[1] ignorecase( \n"
+        . emit_rule( $rule, $_[1] . '  ' )
+        . " )\n" 
+        if $str eq 'ignorecase';
+
     die "modifier '$str' not implemented";
 }
 sub constant {
@@ -471,13 +541,64 @@ sub metasyntax {
         return;
     }
     if ( $prefix =~ /[-+[]/ ) {   # character class 
-        $cmd =~ s/\.\./-/g;
-        if ( $prefix eq '-' ) {
-	       $cmd = '[^' . substr($cmd, 2);
-	    } 
-        elsif ( $prefix eq '+' ) {
-	       $cmd = substr($cmd, 2);
+        #die "SET regex: $cmd\n";
+        
+        $cmd =~ s/\.\./-/g;  # ranges
+        
+        # TODO - \o \O
+
+        if    ( $cmd =~ /^ \+? \[ \\ c \[ (.*) \] \] /x ) {
+            #$cmd = "(?:\\N{" . join( "}|\\N{", split( /\s*;\s*/, $1 ) ) . "})";
+            $cmd = "[\\N{" . join( "}\\N{", split( /\s*;\s*/, $1 ) ) . "}]";
+        }
+        elsif ( $cmd =~ /^ \+? \[ \\ C \[ (.*) \] \] /x ) {
+            #$cmd = "(?!\\N{" . join( "}|\\N{", split( /\s*;\s*/, $1 ) ) . "})\\X";
+            $cmd = "[^\\N{" . join( "}\\N{", split( /\s*;\s*/, $1 ) ) . "}]";
+        }
+        elsif ( $cmd =~ /^ -  \[ \\ C \[ (.*) \] \] /x ) {
+            #$cmd = "(?:\\N{" . join( "}|\\N{", split( /\s*;\s*/, $1 ) ) . "})";
+            $cmd = "[\\N{" . join( "}\\N{", split( /\s*;\s*/, $1 ) ) . "}]";
+        }
+        elsif ( $cmd =~ /^ -  \[ \\ c \[ (.*) \] \] /x ) {
+            #$cmd = "(?!\\N{" . join( "}|\\N{", split( /\s*;\s*/, $1 ) ) . "})\\X";
+            $cmd = "[^\\N{" . join( "}\\N{", split( /\s*;\s*/, $1 ) ) . "}]";
+        }
+
+        
+        elsif ( $cmd =~ /^ \+? \[ \\ x \[ (.*) \] \] /x ) {
+            $cmd = "(?:\\x{$1})";
+        }
+        elsif ( $cmd =~ /^ \+? \[ \\ X \[ (.*) \] \] /x ) {
+            $cmd = "(?!\\x{$1})\\X";
+            #$cmd = "[^\\x{$1}]";
+        }
+        elsif ( $cmd =~ /^ -  \[ \\ X \[ (.*) \] \] /x ) {
+            $cmd = "(?:\\x{$1})";
+            #$cmd = "[\\x{$1}]";
+        }
+        elsif ( $cmd =~ /^ -  \[ \\ x \[ (.*) \] \] /x ) {
+            $cmd = "(?!\\x{$1})\\X";
+        }
+        
+        
+        elsif ( $cmd =~ /^ - \s* \[ (.*) /x ) {
+           $cmd = '[^' . $1;
+        } 
+        elsif ( $cmd =~ /^ - \s* (.*) /x ) {
+           my $name = $1;
+           $cmd = ( $name =~ /^is/ )
+                ? "\\P{$name}"
+                : "[^[:$name:]]";
+        } 
+        elsif ( $cmd =~ /^ \+ \s* \[ (.*) /x ) {
+           $cmd = '[' . $1;
 	    }
+        elsif ( $cmd =~ /^ \+ \s* (.*) /x ) {
+           my $name = $1;
+           $cmd = ( $name =~ /^is/ )
+                ? "\\p{$name}"
+                : "[[:$name:]]";
+        } 
 	    # XXX <[^a]> means [\^a] instead of [^a] in perl5re
         return "$_[1] perl5( q!$cmd! )\n" unless $cmd =~ /!/;
         return "$_[1] perl5( q($cmd) )\n"; # XXX if $cmd eq '!)'
@@ -488,7 +609,7 @@ sub metasyntax {
             warn "code assertion not implemented";
             return;
         }
-        return call_subrule( $cmd, $_[1] );
+        return call_subrule_no_capture( $cmd, $_[1] );
     }
     if ( $prefix =~ /[_[:alnum:]]/ ) {
         if ( $cmd eq 'cut' ) {
