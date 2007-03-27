@@ -1,5 +1,6 @@
 
 use v6-alpha;
+use utf8;
 
 # Perl6 implementation of the 'Rule' syntax 
 # author: Flavio S. Glock - fglock@gmail.com
@@ -11,6 +12,7 @@ use v6-alpha;
         Data::Bind
     - replace the header with:
         package Pugs::Grammar::Rule;
+        use utf8;
         no strict 'refs';
         use Pugs::Runtime::Match;
         use Pugs::Runtime::Regex;
@@ -108,7 +110,7 @@ token char_range {
 }
 
 token char_class {
-    |  <?ident>
+    |  <?alpha>+
     |  \[  <?char_range>  \]
 }
 
@@ -192,112 +194,65 @@ token named_capture_body {
         { return { not_before => :$$<rule>, } }
     },
     '<!' => token {
+        <char_class>
+        ( <[+-]> <char_class> )+
+        \>
+        { return { 
+            negate  => { 
+                char_class => [ 
+                    '+' ~ $<char_class>,
+                    @($/[0]),   # TODO - stringify
+                ] } 
+            }
+        }
+    |
         <metasyntax> \> 
         { return { negate  => $$<metasyntax>, } }
     },
     '<+' => token {
-        $<c0> := <char_class>
-
-        [
-           \+  $<c1> := <char_class> 
-           \>
-
-           { return  
-
-# [<before <?alpha>>|<before <?digit>>].
-# print "Ast: ", Dumper( Pugs::Grammar::Rule->rule( '[<before <?alpha>>|<before <?digit>>].' )->() );
-
-{
-  'concat' => [
-    {
-      'quant' => {
-        'ws2' => '',
-        'greedy' => '',
-        'quant' => '',
-        'ws1' => '',
-        'ws3' => '',
-        'term' => {
-          'alt' => [
-            {
-              'quant' => {
-                'ws2' => '',
-                'greedy' => '',
-                'quant' => '',
-                'ws1' => '',
-                'ws3' => '',
-                'term' => {
-                  'before' => {
-                    'rule' => {
-                      'quant' => {
-                        'ws2' => '',
-                        'greedy' => '',
-                        'quant' => '',
-                        'ws1' => '',
-                        'ws3' => '',
-                        'term' => {
-                          'metasyntax' => '+' ~ $<c0>
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            },
-            {
-              'quant' => {
-                'ws2' => '',
-                'greedy' => '',
-                'quant' => '',
-                'ws1' => '',
-                'ws3' => '',
-                'term' => {
-                  'before' => {
-                    'rule' => {
-                      'quant' => {
-                        'ws2' => '',
-                        'greedy' => '',
-                        'quant' => '',
-                        'ws1' => '',
-                        'ws3' => '',
-                        'term' => {
-                          'metasyntax' => '+' ~ $<c1>
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          ]
+        <char_class>
+        ( <[+-]> <char_class> )*
+        \>
+        { return { 
+            char_class => [ 
+                '+' ~ $<char_class>,
+                @($/[0]),   # TODO - stringify
+            ] } 
         }
-      }
-    },
-    {
-      'quant' => {
-        'ws2' => '',
-        'greedy' => '',
-        'quant' => '',
-        'ws1' => '',
-        'ws3' => '',
-        'term' => {
-          'dot' => 1
-        }
-      }
-    }
-  ]
-}
-
-           }
-
-        |  \> 
-           { return { metasyntax => ~ $<c0> } }
-        ]
     },
     '<-' => token {
-        <char_class> \>
-        { return { metasyntax => '-' ~ $<char_class> } }
+        <char_class>
+        ( <[+-]> <char_class> )*
+        \>
+        { return { 
+            char_class => [ 
+                '-' ~ $<char_class>,
+                @($/[0]),   # TODO - stringify
+            ] } 
+        }
+    },
+    '<[' => token { 
+        <char_range>  \]
+        ( <[+-]> <char_class> )*
+        \>
+        { return { 
+            char_class => [ 
+                '+[' ~ $<char_range> ~ ']',
+                @($/[0]),   # TODO - stringify
+            ] } 
+        }
     },
     '<' => token { 
+        <char_class>
+        ( <[+-]> <char_class> )+
+        \>
+        { return { 
+            char_class => [ 
+                '+' ~ $<char_class>,
+                @($/[0]),   # TODO - stringify
+            ] } 
+        }
+    |
         <metasyntax>  \>
         { return $$<metasyntax> }
     },
@@ -327,10 +282,10 @@ token named_capture_body {
     '^'   => token { { return { colon => '^'  ,} } },
     
     '>>'  => token { { return { colon => '>>' ,} } },
-    '»'   => token { { return { colon => '>>' ,} } },
+    'Â»'   => token { { return { colon => '>>' ,} } },
 
     '<<'  => token { { return { colon => '<<' ,} } },
-    '«'   => token { { return { colon => '<<' ,} } },
+    'Â«'   => token { { return { colon => '<<' ,} } },
 
     ':i'  => token { 
         <?ws> <rule> 

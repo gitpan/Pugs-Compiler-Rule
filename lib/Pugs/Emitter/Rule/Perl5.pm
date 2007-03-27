@@ -490,6 +490,11 @@ sub constant {
     return "$_[1] constant( q!$char! )\n" unless $char =~ /!/;
     return "$_[1] constant( q($char) )\n";
 }
+sub char_class {
+    my $cmd = Pugs::Emitter::Rule::Perl5::CharClass::emit( $_[0] );
+    return "$_[1] perl5( q!$cmd! )\n" unless $cmd =~ /!/;
+    return "$_[1] perl5( q($cmd) )\n"; # XXX if $cmd eq '!)'
+}
 sub metasyntax {
     # <cmd>
     my $cmd = $_[0];   
@@ -539,69 +544,6 @@ sub metasyntax {
         $cmd = substr( $cmd, 1, -1 );
         warn "<\"...\"> not implemented";
         return;
-    }
-    if ( $prefix =~ /[-+[]/ ) {   # character class 
-        #die "SET regex: $cmd\n";
-        
-        $cmd =~ s/\.\./-/g;  # ranges
-        
-        # TODO - \o \O
-
-        if    ( $cmd =~ /^ \+? \[ \\ c \[ (.*) \] \] /x ) {
-            #$cmd = "(?:\\N{" . join( "}|\\N{", split( /\s*;\s*/, $1 ) ) . "})";
-            $cmd = "[\\N{" . join( "}\\N{", split( /\s*;\s*/, $1 ) ) . "}]";
-        }
-        elsif ( $cmd =~ /^ \+? \[ \\ C \[ (.*) \] \] /x ) {
-            #$cmd = "(?!\\N{" . join( "}|\\N{", split( /\s*;\s*/, $1 ) ) . "})\\X";
-            $cmd = "[^\\N{" . join( "}\\N{", split( /\s*;\s*/, $1 ) ) . "}]";
-        }
-        elsif ( $cmd =~ /^ -  \[ \\ C \[ (.*) \] \] /x ) {
-            #$cmd = "(?:\\N{" . join( "}|\\N{", split( /\s*;\s*/, $1 ) ) . "})";
-            $cmd = "[\\N{" . join( "}\\N{", split( /\s*;\s*/, $1 ) ) . "}]";
-        }
-        elsif ( $cmd =~ /^ -  \[ \\ c \[ (.*) \] \] /x ) {
-            #$cmd = "(?!\\N{" . join( "}|\\N{", split( /\s*;\s*/, $1 ) ) . "})\\X";
-            $cmd = "[^\\N{" . join( "}\\N{", split( /\s*;\s*/, $1 ) ) . "}]";
-        }
-
-        
-        elsif ( $cmd =~ /^ \+? \[ \\ x \[ (.*) \] \] /x ) {
-            $cmd = "(?:\\x{$1})";
-        }
-        elsif ( $cmd =~ /^ \+? \[ \\ X \[ (.*) \] \] /x ) {
-            $cmd = "(?!\\x{$1})\\X";
-            #$cmd = "[^\\x{$1}]";
-        }
-        elsif ( $cmd =~ /^ -  \[ \\ X \[ (.*) \] \] /x ) {
-            $cmd = "(?:\\x{$1})";
-            #$cmd = "[\\x{$1}]";
-        }
-        elsif ( $cmd =~ /^ -  \[ \\ x \[ (.*) \] \] /x ) {
-            $cmd = "(?!\\x{$1})\\X";
-        }
-        
-        
-        elsif ( $cmd =~ /^ - \s* \[ (.*) /x ) {
-           $cmd = '[^' . $1;
-        } 
-        elsif ( $cmd =~ /^ - \s* (.*) /x ) {
-           my $name = $1;
-           $cmd = ( $name =~ /^is/ )
-                ? "\\P{$name}"
-                : "[^[:$name:]]";
-        } 
-        elsif ( $cmd =~ /^ \+ \s* \[ (.*) /x ) {
-           $cmd = '[' . $1;
-	    }
-        elsif ( $cmd =~ /^ \+ \s* (.*) /x ) {
-           my $name = $1;
-           $cmd = ( $name =~ /^is/ )
-                ? "\\p{$name}"
-                : "[[:$name:]]";
-        } 
-	    # XXX <[^a]> means [\^a] instead of [^a] in perl5re
-        return "$_[1] perl5( q!$cmd! )\n" unless $cmd =~ /!/;
-        return "$_[1] perl5( q($cmd) )\n"; # XXX if $cmd eq '!)'
     }
     if ( $prefix eq '?' ) {   # non_capturing_subrule / code assertion
         $cmd = substr( $cmd, 1 );
