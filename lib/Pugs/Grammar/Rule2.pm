@@ -56,12 +56,12 @@ token ws {
 
 # regex ident can start with a number
 token ident {
-    [ <?alnum> | _ | <'::'> ]+
+    [ <?alnum> | _ | '::' ]+
 }
 
 # after '\\'
 token special_char {  
-        | ( c | C ) \[ ( [<alnum>|\s|<';'>|<'('>|<')'>|<'-'>]+) \]
+        | ( c | C ) \[ ( [<alnum>|\s| ';' | '(' | ')' | '-' ]+) \]
           #  \c[LATIN LETTER A] 
           { return { special_char => '\\' ~ $0 ~ $1 , } } 
 
@@ -91,15 +91,23 @@ token literal {
     ]*
 }
 
+token double_quoted {
+    [ 
+    |  \\ <special_char>
+    |  <%Pugs::Grammar::Rule::variables>
+    |  <-[ \" ]> 
+    ]*
+}
+
 token metasyntax {
     [ 
     |  \\ <special_char>
     |  \'  <?literal>     \'
+    |  \"  <?double_quoted>   \"
     |  \{  <?string_code>        \}
     |  \<  <?metasyntax>  \>
     |  <-[ \> ]> 
     ]+ 
-    { return { metasyntax => $$/ ,} }
 }
 
 token char_range {
@@ -119,8 +127,13 @@ token string_code {
     [ 
     |  \\ <special_char>
     |  \'  <?literal>     \'
-    |  \{  <?string_code> \}
-    |  <-[ \} ]> 
+    |  \"  <?double_quoted>   \"
+    |  \{  [ <?string_code> | '' ]  \}
+    |  \(  [ <?string_code> | '' ]  \)
+    |  \<  [ <?string_code> | '' ]  \>
+    |  [ <?ws> | \> | \= | \- ] \> 
+    |  <?ws>
+    |  <-[ \} \) \> ]> 
     ]+ 
 }
 
@@ -133,9 +146,99 @@ token parsed_code {
 token named_capture_body {
     | \(  <rule>        \)  { return { capturing_group => $$<rule> ,} } 
     | \[  <rule>        \]  { return $$<rule> } 
-    | \<  <metasyntax>  \>  { return $$<metasyntax> } 
+    | \<  <parse_metasyntax>  { return $$<parse_metasyntax> } 
+    | \'  <?literal>    \'
+        { return { metasyntax => { metasyntax => ~ $$/ ,} } }
     | { die "invalid alias syntax" }
 }
+
+token parse_metasyntax {
+        $<modifier> := [ '!' | '?' | '' ]
+    [
+        '{'  <parsed_code>  '}>'
+        { return { closure => {
+            closure  => $$<parsed_code>,
+            modifier => $$<modifier>,
+        } } }
+    |
+        <char_class>
+        ( <[+-]> <char_class> )+
+        \>
+        { 
+            if ( $$<modifier> eq '!' ) {
+              return { 
+                negate => {
+                  char_class => [ 
+                    '+' ~ $<char_class>,
+                    @($/[0]),   # TODO - stringify
+              ] } }
+            }
+            return { 
+              char_class => [ 
+                '+' ~ $<char_class>,
+                @($/[0]),   # TODO - stringify
+            ] } 
+        }
+    |
+        <ident>
+        [
+          <?ws> <rule> \> 
+          {
+            if  ( $$<ident> eq 'before' 
+               || $$<ident> eq 'after'    
+                ) {
+                return { $$<ident> => { rule => $$<rule>, modifier => $$<modifier> } } 
+            }
+            return { metasyntax => { 
+                metasyntax => $$<ident>, 
+                rule       => $$<rule>, 
+                modifier   => $$<modifier>,
+            } }
+          }
+        |
+          ':' <?ws>?
+          $<str> := [
+            [ 
+            |  \\ <special_char>
+            |  <%Pugs::Grammar::Rule::variables>
+            |  <-[ \> ]> 
+            ]*
+          ]
+          \>
+          {
+            if  ( $$<ident> eq 'before' 
+               || $$<ident> eq 'after'    
+                ) {
+                return { $$<ident> => { 
+                    rule     => { metasyntax => { 
+                        metasyntax => '\'' ~ $$<str> ~ '\'' 
+                    } },
+                    modifier => $$<modifier>,
+                } } 
+            }
+            return { metasyntax => {
+                metasyntax => $$<ident>, 
+                string   => $$<str>, 
+                modifier => $$<modifier>,
+            } }
+          }
+        |
+          \(  <parsed_code>  \) \>
+          { return { call => { 
+              method   => $$<ident>, 
+              params   => $$<parsed_code>, 
+              modifier => $$<modifier>,
+          } } }
+        ]
+    |
+        <metasyntax>  \>
+        { return { metasyntax => {
+              metasyntax => ~$$<metasyntax>, 
+              modifier   => $$<modifier>,
+        } } }
+    ]
+}
+
 
 %variables = (
 
@@ -173,41 +276,22 @@ token named_capture_body {
 
 %rule_terms = (
 
+    '{*}' => token {
+        # placeholder
+        { return { metasyntax => { metasyntax => 'null' ,} } }
+    },
+
+    '\'' => token {
+        <?literal>     \'
+        { return { metasyntax => { metasyntax => '\'' ~ $$/ ,} } }
+    },
     '(' => token {
         <rule> \)
         { return { capturing_group => $$<rule> ,} }
     },
     '<(' => token {
-        <rule>  <')>'>
+        <rule>  ')>'
         { return { capture_as_result => $$<rule> ,} }
-    },
-    '<after' => token {
-        <?ws> <rule> \> 
-        { return { after => :$$<rule>, } }
-    },
-    '<before' => token {
-        <?ws> <rule> \> 
-        { return { before => :$$<rule>, } }
-    },
-    '<!before' => token {
-        <?ws> <rule> \> 
-        { return { not_before => :$$<rule>, } }
-    },
-    '<!' => token {
-        <char_class>
-        ( <[+-]> <char_class> )+
-        \>
-        { return { 
-            negate  => { 
-                char_class => [ 
-                    '+' ~ $<char_class>,
-                    @($/[0]),   # TODO - stringify
-                ] } 
-            }
-        }
-    |
-        <metasyntax> \> 
-        { return { negate  => $$<metasyntax>, } }
     },
     '<+' => token {
         <char_class>
@@ -243,22 +327,15 @@ token named_capture_body {
         }
     },
     '<' => token { 
-        <char_class>
-        ( <[+-]> <char_class> )+
-        \>
-        { return { 
-            char_class => [ 
-                '+' ~ $<char_class>,
-                @($/[0]),   # TODO - stringify
-            ] } 
-        }
-    |
-        <metasyntax>  \>
-        { return $$<metasyntax> }
+        <parse_metasyntax>
+        { return $$<parse_metasyntax> }
     },
     '{' => token { 
         <parsed_code>  \}
-        { return { closure => $$<parsed_code> ,} }
+        { return { closure => {
+            closure => $$<parsed_code>,
+            modifier => 'plain',
+        } } }
     },
     '\\' => token {  
         <special_char>
@@ -322,7 +399,7 @@ token named_capture_body {
     
 token term {
     |  <%Pugs::Grammar::Rule::variables>
-       [  <?ws>? <':='> <?ws>? <named_capture_body>
+       [  <?ws>? ':=' <?ws>? <named_capture_body>
           { 
             return { named_capture => {
                 rule =>  $$<named_capture_body>,
@@ -347,7 +424,7 @@ token term {
 }
 
 token quant {
-    |   <'**'> <?ws>? \{  <parsed_code>  \}
+    |   '**' <?ws>? \{  <parsed_code>  \}
         { return { closure => $$<parsed_code> ,} }
     |   <[  \? \* \+  ]>?
 }
@@ -360,7 +437,17 @@ token quantifier {
     <quant>
     $<greedy> := (<[  \? \+  ]>?)
     $<ws3>   := (<?ws>?)
-    { return { 
+    { 
+      if 
+               $$/{'quant'}   eq ''
+            && $$/{'greedy'} eq ''
+            && $$/{'ws1'}    eq ''
+            && $$/{'ws2'}    eq ''
+            && $$/{'ws3'}    eq ''
+      {
+          return $$/{'term'};
+      }
+      return { 
         quant => { 
             term    => $$/{'term'},
             quant   => $$/{'quant'},
@@ -384,11 +471,11 @@ token concat {
 }
 
 token conjunctive1 {
-    [ <?ws>? \& ]?
+    [ <?ws>? \& <!before \& > ]?
     
     <concat>**{1}
     [
-        \&  <concat> 
+        \& <!before \& >  <concat> 
     ]*
     
     {             
@@ -401,11 +488,11 @@ token conjunctive1 {
 }
 
 token disjunctive1 {
-    [ <?ws>? \| ]?
+    [ <?ws>? \| <!before \| > ]?
     
     <conjunctive1>**{1}
     [
-        \|  <conjunctive1> 
+        \| <!before \| > <conjunctive1> 
     ]*
     
     {             

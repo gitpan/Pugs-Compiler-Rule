@@ -14,17 +14,17 @@ our $capture_to_array;
 our %capture_seen;
 
 sub call_subrule {
-    my ( $subrule, $tab, @param ) = @_;
+    my ( $subrule, $tab, $positionals, @param ) = @_;
     $subrule = "\$_[4]->" . $subrule unless $subrule =~ / :: | \. | -> /x;
     $subrule =~ s/\./->/;   # XXX - source filter
 
-    push @param, 1 if @param == 1;  # odd number of elements in hash
+    $positionals = shift @param if $positionals eq '' && @param == 1;  # odd number of elements in hash
     #print "PARAM: ",Dumper(@param);
 
     return 
 "$tab sub{ 
 $tab     my \$prior = \$::_V6_PRIOR_;
-$tab     my \$param = { \%{ \$_[7] || {} }, args => {" . 
+$tab     my \$param = { \%{ \$_[7] || {} }, positionals => [ $positionals ], args => {" . 
             join(", ",@param) . "} };
 $tab     \$_[3] = $subrule( \$_[0], \$param, \$_[3],  );
 $tab     \$::_V6_PRIOR_ = \$prior;
@@ -33,17 +33,17 @@ $tab }
 }
 
 sub call_subrule_no_capture {
-    my ( $subrule, $tab, @param ) = @_;
+    my ( $subrule, $tab, $positionals, @param ) = @_;
     $subrule = "\$_[4]->" . $subrule unless $subrule =~ / :: | \. | -> /x;
     $subrule =~ s/\./->/;   # XXX - source filter
 
-    push @param, 1 if @param == 1;  # odd number of elements in hash
+    $positionals = shift @param if $positionals eq '' && @param == 1;  # odd number of elements in hash
     #print "PARAM: ",Dumper(@param);
 
     return 
 "$tab sub{ 
 $tab     my \$prior = \$::_V6_PRIOR_;
-$tab     my \$param = { \%{ \$_[7] || {} }, args => {" . 
+$tab     my \$param = { \%{ \$_[7] || {} }, positionals => [ $positionals ], args => {" . 
             join(", ",@param) . "} };
 $tab     \$_[3] = $subrule( \$_[0], \$param, \$_[3],  );
 $tab     \$_[3]->data->{match} = [];
@@ -252,7 +252,7 @@ sub code {
     return "$_[1] $_[0]\n";  
 }        
 sub dot {
-    return call_subrule( 'any', $_[1] );
+    return call_subrule( 'any', $_[1], '' );
 }
 sub variable {
     my $name = "$_[0]";
@@ -350,28 +350,34 @@ sub match_variable {
     return "$code\n";
 }
 sub closure {
-    my $code = $_[0]; 
+    my $code     = $_[0]{closure};
+    my $modifier = $_[0]{modifier};  # 'plain', '', '?', '!'
     
-    if ( ref( $code ) ) {
-        if ( defined $Pugs::Compiler::Perl6::VERSION ) {
-            # perl6 compiler is loaded
-            my $perl5 = Pugs::Emitter::Perl6::Perl5::emit( 'grammar', $code, 'self' );
-            return "
-                sub { 
-                    \$::_V6_MATCH_ = \$_[0]; 
-                    local \$::_V6_SUCCEED = 1;
-                    my \$capture = sub { $perl5 }->();
-                    \$_[3] = Pugs::Runtime::Match->new( { 
-                        bool  => \\\$::_V6_SUCCEED, 
-                        str   => \\(\$_[0]),
-                        from  => \\(\$_[7]{p} || 0),
-                        to    => \\(\$_[7]{p} || 0),
-                        match => [],
-                        named => {},
-                        capture => \\\$capture,
-                    } )
-                }\n"
-                unless $perl5 =~ /return/;
+    #die "closure modifier not implemented '$modifier'"
+    #    unless $modifier eq 'plain';
+    
+    #warn "CODE $code";
+    $code = '' if $code eq '{*}';  # "whatever"
+
+    if (  ref( $code ) 
+       && defined $Pugs::Compiler::Perl6::VERSION 
+    ) {
+        # perl6 compiler is loaded
+        $code = Pugs::Emitter::Perl6::Perl5::emit( 'grammar', $code, 'self' );
+    }
+    else {
+        # XXX XXX XXX - source-filter - temporary hacks to translate p6 to p5
+        # $()<name>
+        $code =~ s/ ([^']) \$ \( \) < (.*?) > /$1 \$_[0]->[$2]/sgx;
+        # $<name>
+        $code =~ s/ ([^']) \$ < (.*?) > /$1 \$_[0]->{$2}/sgx;
+        # $()
+        $code =~ s/ ([^']) \$ \( \) /$1 \$_[0]->()/sgx;
+        # $/
+        $code =~ s/ ([^']) \$ \/ /$1 \$_[0]/sgx;
+    }
+    #print "Code: $code\n";
+    
             return "
                 sub { 
                     \$_[3] = Pugs::Runtime::Match->new( { 
@@ -381,52 +387,35 @@ sub closure {
                         to    => \\(\$_[7]{p} || 0),
                         match => [],
                         named => {},
-                        capture => sub { $perl5 },
+                        capture => sub { $code },
                         abort => 1,
                     } )
-                }\n";
-        }        
-    }
+                }\n"
+                if $code =~ /return/;
 
-    # XXX XXX XXX - source-filter - temporary hacks to translate p6 to p5
-    # $()<name>
-    $code =~ s/ ([^']) \$ \( \) < (.*?) > /$1 \$_[0]->[$2]/sgx;
-    # $<name>
-    $code =~ s/ ([^']) \$ < (.*?) > /$1 \$_[0]->{$2}/sgx;
-    # $()
-    $code =~ s/ ([^']) \$ \( \) /$1 \$_[0]->()/sgx;
-    # $/
-    $code =~ s/ ([^']) \$ \/ /$1 \$_[0]/sgx;
-    #print "Code: $code\n";
-    
-    return 
-        "$_[1] sub {\n" . 
-        "$_[1]     $code( \@_ );\n" . 
-        "$_[1]     \$_[3] = Pugs::Runtime::Match->new( { 
-            bool  => \\1, 
-            str   => \\(\$_[0]),
-            from  => \\(\$_[7]{p} || 0),
-            to    => \\(\$_[7]{p} || 0),
-            match => [],
-            named => {},
-        } )\n" .
-        "$_[1] }\n"
-        unless $code =~ /return/;
-        
-    return
-        "$_[1]     sub {\n" . 
-        # "print Dumper(\@_);\n" . 
-        "$_[1]         \$_[3] = Pugs::Runtime::Match->new( { 
-            bool  => \\1, 
-            str   => \\(\$_[0]),
-            from  => \\(\$_[7]{p} || 0),
-            to    => \\(\$_[7]{p} || 0),
-            match => [],
-            named => {},
-            capture => sub $code,
-            abort => 1,
-        } );\n" .
-        "$_[1]     }\n";
+    my $bool = "\\\$::_V6_SUCCEED";
+    $bool    = "\\( \$capture ? 1 : 0 )"  if $modifier eq '?';
+    $bool    = "\\( \$capture ? 0 : 1 )"  if $modifier eq '!';
+
+    my $cap  = "\\\$capture";
+    $cap     = "undef"  if $modifier eq '?' || $modifier eq '!';
+
+            return "
+                sub { 
+                    \$::_V6_MATCH_ = \$_[0]; 
+                    local \$::_V6_SUCCEED = 1;
+                    my \$capture = sub { $code }->();
+                    \$_[3] = Pugs::Runtime::Match->new( { 
+                        bool  => $bool, 
+                        str   => \\(\$_[0]),
+                        from  => \\(\$_[7]{p} || 0),
+                        to    => \\(\$_[7]{p} || 0),
+                        match => [],
+                        named => {},
+                        capture => $cap,
+                    } )
+                }\n";
+
 }
 sub named_capture {
     my $name    = $_[0]{ident};
@@ -495,9 +484,30 @@ sub char_class {
     return "$_[1] perl5( q!$cmd! )\n" unless $cmd =~ /!/;
     return "$_[1] perl5( q($cmd) )\n"; # XXX if $cmd eq '!)'
 }
+sub call {
+    #die "not implemented: ", Dumper(\@_);
+    my $param = $_[0]{params};
+    my $name = $_[0]{method};
+        # capturing subrule
+        # <subrule ( param, param ) >
+        my ($param_list) = $param =~ /\{(.*)\}/;
+        $param_list = '' unless defined $param_list;
+        my @param = split( ',', $param_list );
+        $capture_seen{$name}++;
+        #print "subrule ", $capture_seen{$name}, "\n";
+        #print "param: ", Dumper(\@param);
+        return             
+            "$_[1] named( '$name', " .
+            ( $capture_to_array || ( $capture_seen{$name} > 1 ? 1 : 0 ) ) .  
+            ", \n" .
+            call_subrule( $name, $_[1]."  ", "", @param ) . 
+            "$_[1] )\n";
+}
 sub metasyntax {
-    # <cmd>
-    my $cmd = $_[0];   
+    my $cmd = $_[0]{metasyntax};
+    my $modifier = delete $_[0]{modifier} || '';   # ? !
+    return negate( { metasyntax => $_[0] }, $_[1] ) if $modifier eq '!';
+
     my $prefix = substr( $cmd, 0, 1 );
     if ( $prefix eq '@' ) {
         # XXX - wrap @array items - see end of Pugs::Grammar::Rule
@@ -551,7 +561,7 @@ sub metasyntax {
             warn "code assertion not implemented";
             return;
         }
-        return call_subrule_no_capture( $cmd, $_[1] );
+        return call_subrule_no_capture( $cmd, $_[1], '' );
     }
     if ( $prefix =~ /[_[:alnum:]]/ ) {
         if ( $cmd eq 'cut' ) {
@@ -574,7 +584,7 @@ sub metasyntax {
             "$_[1] named( '$name', " .
             ( $capture_to_array || ( $capture_seen{$name} > 1 ? 1 : 0 ) ) .  
             ", \n" .
-            call_subrule( $name, $_[1]."  ", @param ) . 
+            call_subrule( $name, $_[1]."  ", "", @param ) . 
             "$_[1] )\n";
     }
     if ( $prefix eq '.' ) {  
