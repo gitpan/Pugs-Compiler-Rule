@@ -9,12 +9,13 @@ lib/pcr.txt
 lib/print.sh
 tmp.txt
 lib/Pugs/Grammar/Rule2.pmc
+trans.pl
+trans2.pl
 tmp
 ^blib/
 ^Makefile$
 ^Makefile\.[a-z]+$
 \.swp$
-examples/Grammar.grammar
 Pugs-Compiler-Rule-\d+
 ^pm_to_blib$
 CVS/.*

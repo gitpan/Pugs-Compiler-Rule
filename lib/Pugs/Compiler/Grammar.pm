@@ -4,7 +4,7 @@ use warnings;
 
 package Pugs::Compiler::Grammar;
 
-our $VERSION = '0.24';
+our $VERSION = '0.25';
 
 use Pugs::Grammar::Rule;
 use Pugs::Emitter::Grammar::Perl5;
@@ -112,7 +112,7 @@ See L<http://www.perl.com/perl/misc/Artistic.html>
 
 =head1 SEE ALSO
 
-L<compile_p6grammar>,
+L<compile_p6grammar.pl>,
 L<Pugs::Compiler::Regex>,
 L<Pugs::Grammar::Rule>,
 L<Pugs::Emitter::Grammar::Perl5>.

@@ -1,6 +1,6 @@
 use strict;
 use warnings;
-use Test::More 'no_plan';
+use Test::More tests => 2 * 6;
 
 mkdir 'tmp' if !-e 'tmp';
 
@@ -21,8 +21,11 @@ sub test {
 test('adder', 'print Adder->add("3 + 23")->(), "\n"', 26);
 test('adder', 'print Adder->add("532+49")->(), "\n"', 581);
 
-SKIP: {
-    skip "digits.grammar loops", 2;
-    test('digits', 'print Digits->count("49a3")->(), "\n"', 3);
-};
+test('digits', 'print Digits->count("49a3")->(), "\n"', 3);
+
+test('langs', 'print My::VB->def("Dim a, b As double")->{"My::C.var_list"}, "\n"', 'a, b');
+
+test('langs2', 'print My::VB->def("Dim a, b As double")->{"My::C.var_list"}, "\n"', 'a, b ');
+
+test('Grammar', 'print Pugs::Grammar::Rule->rule("a b")->to', 3);
 

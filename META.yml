@@ -1,5 +1,5 @@
 --- 
-abstract: Compiler for Perl 6 Rules
+abstract: Compiler for Perl 6 regexes
 author: The Pugs Team C<< <perl6-compiler@perl.org> >>.
 distribution_type: module
 generated_by: Module::Install version 0.67
@@ -21,4 +21,4 @@ requires:
   Parse::Yapp: 0
   perl: 5.6.1
 tests: t/*.t t/*/*.t
-version: 0.24
+version: 0.25

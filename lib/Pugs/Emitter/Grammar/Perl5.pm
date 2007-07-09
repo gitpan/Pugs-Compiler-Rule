@@ -1,5 +1,7 @@
 package Pugs::Emitter::Grammar::Perl5;
 
+our $VERSION = '0.25';
+
 #use Smart::Comments;
 use strict;
 use warnings;
@@ -13,8 +15,9 @@ sub emit {
     ### $name
     for my $stmt (@$stmts) {
         my $regex = $stmt->();
+        my $type = $regex->{type};
         ## $regex
-        if ($regex->{type} eq 'block') {
+        if ($type eq 'block') {
             $p5_methods .= <<"_EOC_";
 # Code block from grammar spec
 $regex->{value}
@@ -24,7 +27,23 @@ _EOC_
         }
         ### struct: $regex->{name}
         ## regex AST: $regex->{ast}
-        my $body = Pugs::Emitter::Rule::Perl5::Ratchet::emit('Pugs::Grammar::Rule', $regex->{ast});
+        my $params = {};
+        if ($type eq 'rule') {
+            $params->{sigspace} = 1;
+        }
+        my $body;
+        if ($type eq 'regex') {
+            $body = Pugs::Emitter::Rule::Perl5::emit(
+                'Pugs::Grammar::Rule',
+                $regex->{ast},
+            )
+        } else {
+            $body = Pugs::Emitter::Rule::Perl5::Ratchet::emit(
+                'Pugs::Grammar::Rule',
+                $regex->{ast},
+                $params,
+            );
+        }
         $body =~ s/^/    /gm;
         $p5_methods .= <<_EOC_;
 # $regex->{type} $regex->{name}
@@ -33,10 +52,14 @@ $body;
 
 _EOC_
     }
+    # bootstrap the regex parser itself:
+    my $prefix = $name eq 'Pugs::Grammar::Rule' ?
+        "#" : '';
     return <<"_EOC_";
 package $name;
 
-use base 'Pugs::Grammar::Base';
+${prefix}use base 'Pugs::Grammar::Base';
+
 use Pugs::Runtime::Match;
 use Pugs::Runtime::Regex;
 
@@ -91,7 +114,7 @@ The Pugs contributors E<lt>perl6-compiler@perl.orgE<gt>.
 
 =head1 COPYRIGHT
 
-Copyright 2007 by Agent Zhang and others.
+Copyright (c) 2007 by Agent Zhang and others.
 
 This program is free software; you can redistribute it
 and/or modify it under the same terms as Perl itself.
@@ -100,5 +123,5 @@ See L<http://www.perl.com/perl/misc/Artistic.html>
 
 =head1 SEE ALSO
 
-L<Pugs::Compiler::Grammar>, L<compile_p6grammar>
+L<Pugs::Compiler::Grammar>, L<compile_p6grammar.pl>.
 

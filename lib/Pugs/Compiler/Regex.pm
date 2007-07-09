@@ -2,9 +2,8 @@ package Pugs::Compiler::Regex;
 
 #use Smart::Comments;
 
-our $VERSION = '0.24';
+our $VERSION = '0.25';
 # Documentation in the __END__
-use 5.006;
 use strict;
 use warnings;
 
@@ -19,12 +18,12 @@ use Pugs::Runtime::Regex;
 # complete the dependency circularity
 push @Pugs::Grammar::Rule::ISA, 'Pugs::Grammar::Base';
 
-use Carp 'croak';
+use Carp qw( croak carp );
 use Data::Dumper;
 use Symbol 'qualify_to_ref';
 use Digest::MD5 'md5_hex';
 
-our $NoCache = 0; # Depresses any caching if set to true
+our $NoCache = $ENV{PCR_NO_CACHE}; # Depresses any caching if set to true
 
 my $cache;
 eval {
@@ -96,12 +95,16 @@ sub compile {
         #print "match: ", Dumper( Pugs::Grammar::Rule->rule( $self->{source} ) );
         my $ast = Pugs::Grammar::Rule->rule(
             $self->{source} )->();
+        if (!defined $ast) {
+            carp "Invalid regex syntax";
+            return undef;
+        }
         ### rule AST: $ast
 
         # save the ast for debugging
         $self->{ast} = $ast;
 
-        #print "ast: ",Dumper($ast),"\n";
+        #warn "ast: ",Dumper($ast),"\n";
         #die "Error in rule: '$rule_source' at: '$ast->tail'\n" if $ast->tail;
         #print 'rule ast: ', do{use Data::Dumper; Dumper($ast{capture})};
 
