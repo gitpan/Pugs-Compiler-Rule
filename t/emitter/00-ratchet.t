@@ -39,6 +39,7 @@ do { my $rule; $rule = sub {
       my $prior = $::_V6_PRIOR_;
       local $::_V6_PRIOR_ = $prior;
       $bool = 0 unless
+
        ## <constant />
 ;
     }
@@ -63,17 +64,17 @@ do { my $rule; $rule = sub {
 --- token: 'a | b'
 --- alt
        (
-           ( $pad{I1759} = $pos or 1 )
+           ( $pad{I1170} = $pos or 1 )
            && (
-            (   ( $pad{I1760} = $pos or 1 ) &&
-             ## <constant />
- ||    ( ( $pos = $pad{I1760} ) && 0 ) )
+
+           ## <group />
+
            )
          || (
-           ( ( $bool = 1 ) && ( $pos = $pad{I1759} ) or 1 )
-           &&             (   ( $pad{I1761} = $pos or 1 ) &&
-             ## <constant />
- ||    ( ( $pos = $pad{I1761} ) && 0 ) )
+           ( ( $bool = 1 ) && ( $pos = $pad{I1170} ) or 1 )
+           && 
+           ## <group />
+
          )
        )
 --- constant

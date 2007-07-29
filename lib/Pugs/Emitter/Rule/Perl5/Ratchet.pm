@@ -15,8 +15,17 @@ our $sigspace = 0;
 our $capture_count;
 our $capture_to_array;
 
-our $count = 1000 + int(rand(1000));
-sub id { 'I' . ($count++) }
+our $count;
+sub id {
+    if (!defined $count) {
+        if (defined $::PCR_SEED) {
+            #warn "SET SEED!!!";
+            srand($::PCR_SEED);
+        }
+        $count = 1000 + int(rand(1000));
+    }
+    'I' . ($count++)
+}
 
 sub call_subrule {
     my ( $subrule, $tab, $positionals, @param ) = @_;
@@ -57,7 +66,8 @@ sub call_constant {
     my $len = length( eval $const );
     #print "Const: [$_[0]] $const $len \n";
     return
-"$_[1] ## <constant>
+"
+$_[1] ## <constant>
 $_[1] ( ( substr( \$s, \$pos, $len ) eq $const )
 $_[1]     ? ( \$pos $direction= $len or 1 )
 $_[1]     : 0
@@ -146,7 +156,9 @@ sub emit_rule {
     die "unknown node: ", Dumper( $n )
         unless ref( $n ) eq 'HASH';
     #print "NODE ", Dumper($n);
-    my ($k) = keys %$n;
+    my @keys = grep { substr($_, 0, 1) ne '_' } keys %$n;
+    ### Node keys: @keys
+    my ($k) = @keys;
     my $v = $$n{$k};
     # XXX - use real references
     no strict 'refs';
@@ -191,7 +203,7 @@ sub quant {
     $rul = "$ws &&\n$rul" if $sigspace && $_[0]->{ws1} ne '';
     $rul = "$rul &&\n$ws" if $sigspace && $_[0]->{ws2} ne '';
     #print $rul;
-    return $rul
+    return "\n$_[1] ## <group>\n" . $rul . "\n$_[1] ## </group>\n"
         if $quantifier eq '';
     # *  +  ?
     # TODO: *? +? ??
@@ -215,23 +227,31 @@ sub quant {
             || $count[0] == 0;
 
         return
-            "$_[1] (\n " .
+            "$_[1] ## <quant>\n" .
+            "$_[1] (\n" .
             join( ' && ', ($rul) x $count[0] ) .
             "\n" .
-            "$_[1] ) $ws3";
+            "$_[1] )$ws3\n" .
+            "$_[1] ## </quant>\n";
     }
     return
+        "$_[1] ## <quant>\n" .
         "$_[1] (\n$rul\n" .
         "$_[1] || ( \$bool = 1 )\n" .
-        "$_[1] ) $ws3"
+        "$_[1] )$ws3\n" .
+        "$_[1] ## </quant>\n"
         if $quantifier eq '?';
     return
-        "$_[1] do { while (\n$rul) {}; \$bool = 1 }$ws3"
+        "$_[1] ## <quant>\n" .
+        "$_[1] do { while (\n$rul) {}; \$bool = 1 }$ws3\n" .
+        "$_[1] ## </quant>\n"
         if $quantifier eq '*';
     return
+        "$_[1] ## <quant>\n" .
         "$_[1] (\n$rul\n" .
         "$_[1] && do { while (\n$rul) {}; \$bool = 1 }\n" .
-        "$_[1] ) $ws3"
+        "$_[1] )$ws3\n" .
+        "$_[1] ## </quant>\n"
         if $quantifier eq '+';
     die "quantifier not implemented: $quantifier";
 }
@@ -265,7 +285,7 @@ $_[1]     && ",
     ) . "
 $_[1]   )
 $_[1] )
-## </alt>\n";
+$_[1] ## </alt>\n";
 }
 sub alt1 { &alt }
 sub conjunctive {
@@ -285,7 +305,8 @@ sub conjunctive {
     $capture_count = $max;
     # print " max = $capture_count\n";
     return
-        "$_[1] (
+        "$_[1] ## <conjunctive>
+$_[1] (
 $_[1]     ( \$pad{$id} = \$pos or 1 )
 $_[1]     && (
 " . join( "
@@ -296,7 +317,8 @@ $_[1]     && ",
           @s
     ) . "
 $_[1]   )
-$_[1] )";
+$_[1] )
+$_[1] ## </conjunctive>\n";
 }
 sub conjunctive1 { &conjunctive }
 sub concat {
@@ -371,7 +393,7 @@ sub concat {
         push @s, $tmp if $tmp;
     }
     @s = reverse @s if $direction eq '-';
-    return "$_[1] (\n" . join( "\n$_[1] &&\n", @s ) . "\n$_[1] )";
+    return "$_[1]## <concat>\n$_[1] (\n" . join( "\n$_[1] &&\n", @s ) . "\n$_[1] )\n$_[1]## </concat>\n";
 }
 sub code {
     return "$_[1] $_[0]\n";
@@ -416,10 +438,12 @@ sub variable {
           )
       !;
     return
-"$_[1] ( eval( '( substr( \$s, \$pos ) =~ m/^(' . $code . ')/ )
+"$_[1] ## <variable>
+$_[1] ( eval( '( substr( \$s, \$pos ) =~ m/^(' . $code . ')/ )
 $_[1]     ? ( \$pos $direction= length( \$1 ) or 1 )
 $_[1]     : 0
-$_[1]    ') )";
+$_[1]    ') )
+$_[1] ## </variable>\n";
     }
 
     # expand embedded %hash
@@ -427,7 +451,8 @@ $_[1]    ') )";
         my $id = '$' . id();
         my $preprocess_hash = 'Pugs::Runtime::Regex::preprocess_hash';
         my $code =
-"          ## <variable>
+"
+          ## <variable>
           do {
             our $id;
             our ${id}_sizes;
@@ -564,40 +589,48 @@ sub closure {
     #print "Code: $code\n";
     # "plain" {...return ...}
     return
-          "$_[1] do { \n"
+          "$_[1] ## <closure>\n"
+        . "$_[1] do {\n"
         . "$_[1]   local \$::_V6_SUCCEED = 1;\n"
         . "$_[1]   \$::_V6_MATCH_ = \$m;\n"
         . "$_[1]   \$m->data->{capture} = \\( sub $code->( \$m ) ); \n"
         . "$_[1]   \$bool = \$::_V6_SUCCEED;\n"
         . "$_[1]   \$::_V6_MATCH_ = \$m if \$bool; \n"
         . "$_[1]   return \$m if \$bool; \n"
-        . "$_[1] }"
+        . "$_[1] }\n"
+        . "$_[1] ## </closure>\n"
         if $code =~ /return/;
 
     # "plain" {...} without return
     return
-          "$_[1] do { \n"
+          "$_[1] ## <closure>\n"
+        . "$_[1] do { \n"
         . "$_[1]   local \$::_V6_SUCCEED = 1;\n"
         . "$_[1]   \$::_V6_MATCH_ = \$m;\n"
         . "$_[1]   sub $code->( \$m );\n"
         . "$_[1]   1;\n"
-        . "$_[1] }"
+        . "$_[1] }\n"
+        . "$_[1] ## </closure>\n"
         if $modifier eq 'plain';
     # "?" <?{...}>
     return
+        "$_[1] ## <closure>\n" .
         "$_[1] do { \n" .
         "$_[1]   local \$::_V6_SUCCEED = 1;\n" .
         "$_[1]   \$::_V6_MATCH_ = \$m;\n" .
         "$_[1]   \$bool = ( sub $code->( \$m ) ) ? 1 : 0; \n" .
-        "$_[1] }"
+        "$_[1] }" .
+        "$_[1] ## </closure>\n"
         if $modifier eq '?';
     # "!" <!{...}>
     return
+        "$_[1] ## <closure>\n" .
         "$_[1] do { \n" .
         "$_[1]   local \$::_V6_SUCCEED = 1;\n" .
         "$_[1]   \$::_V6_MATCH_ = \$m;\n" .
         "$_[1]   \$bool = ( sub $code->( \$m ) ) ? 0 : 1; \n" .
-        "$_[1] }"
+        "$_[1] }" .
+        "$_[1] ## </closure>\n"
         if $modifier eq '!';
 
 }
@@ -612,7 +645,9 @@ sub capturing_group {
             if ref( $program );
     }
 
-    return "$_[1] do{
+    return "
+$_[1] ## <capture>
+$_[1] do{
 $_[1]     my \$hash = do {
 $_[1]       my \$bool = 1;
 $_[1]       my \$from = \$pos;
@@ -632,7 +667,8 @@ $_[1]     }"
 $_[1]     \$match[ $capture_count ] = Pugs::Runtime::Match->new( \$hash );"
         ) . "
 $_[1]     \$bool;
-$_[1] }";
+$_[1] }
+$_[1] ## </capture>\n";
 }
 
 sub capture_as_result {
@@ -645,7 +681,8 @@ sub capture_as_result {
         $program = emit_rule( $program, $_[1].'      ' )
             if ref( $program );
     }
-    return "$_[1] do{
+    return "$_[1] ## <capture>
+$_[1] do{
 $_[1]     my \$hash = do {
 $_[1]       my \$bool = 1;
 $_[1]       my \$from = \$pos;
@@ -658,14 +695,18 @@ $_[1]     };
 $_[1]     my \$bool = \${\$hash->{'bool'}};
 $_[1]     \$m->data->{capture} = \\( \"\" . Pugs::Runtime::Match->new( \$hash ) );
 $_[1]     \$bool;
-$_[1] }";
+$_[1] }
+$_[1] ## </capture>\n";
 }
 sub named_capture {
     my $name    = $_[0]{ident};
-    $name = $name->{match_variable} if ref($name) eq 'HASH';
+    ### $name
+    if (ref($name) eq 'HASH') {
+        $name = $name->{match_variable} || $name->{variable};
+    }
     $name =~ s/^[\$\@\%]//;  # TODO - change semantics as needed
     my $program = $_[0]{rule};
-    #print "name [$name]\n";
+    #warn "name [$name]\n";
 
     if ( exists $program->{metasyntax} ) {
         #print "aliased subrule\n";
@@ -679,7 +720,8 @@ sub named_capture {
         my ( $subrule, $param_list ) = split( /[\(\)]/, $cmd );
         $param_list = '' unless defined $param_list;
         my @param = split( ',', $param_list );
-        return "$_[1] do {
+        return "$_[1] ## <named_capture>
+$_[1] do {
                 my \$prior = \$::_V6_PRIOR_;
                 my \$match =\n" .
                     call_subrule( $subrule, $_[1]."        ", "", @param ) . ";
@@ -693,7 +735,8 @@ sub named_capture {
                     1
                 }
                 else { 0 }
-            }";
+            }
+$_[1] ## </named_capture>\n";
     }
     elsif ( exists $program->{capturing_group} ) {
         #print "aliased capturing_group\n";
@@ -704,7 +747,8 @@ sub named_capture {
             $program = emit_rule( $program, $_[1].'      ' )
                 if ref( $program );
         }
-        return "$_[1] do{
+        return "$_[1] ## <named_capture>
+$_[1] do{
                 my \$match = Pugs::Runtime::Match->new( do {
                     my \$bool = 1;
                     my \$from = \$pos;
@@ -723,14 +767,16 @@ sub named_capture {
                     1
                 }
                 else { 0 }
-            }";
+            }
+$_[1] ## </named_capture>\n";
     }
     else {
         #print "aliased non_capturing_group\n";
         # $/<name> = "$/"
         #print Dumper( $_[0] );
         $program = emit_rule( $program, $_[1].'      ' );
-        return "$_[1] do{
+        return "$_[1] ## <named_capture>
+$_[1] do{
                 my \$from = \$pos;
                 my \$bool = $program;
                 my \$match = Pugs::Runtime::Match->new(
@@ -741,7 +787,8 @@ sub named_capture {
                 : " \$named{'$name'} = \$match;"
                 ) . "
                 \$bool
-            }";
+            }
+$_[1] ## </named_capture>\n";
     }
 }
 sub negate {
@@ -749,7 +796,8 @@ sub negate {
     #print "Negate: ", Dumper($_[0]);
     $program = emit_rule( $program, $_[1].'        ' )
         if ref( $program );
-    return "$_[1] do{
+    return "$_[1] ## <negate>
+$_[1] do{
 $_[1]     my \$pos1 = \$pos;
 $_[1]     do {
 $_[1]       my \$pos = \$pos1;
@@ -759,15 +807,18 @@ $_[1]       my \%named;
 $_[1]       \$bool = " . $program . " ? 0 : 1;
 $_[1]       \$bool;
 $_[1]     };
-$_[1] }";
+$_[1] }
+$_[1] ## </negate>\n";
 }
+
 sub before {
     my $mod = delete $_[0]{modifier} || '';
     return negate( { before => $_[0] }, $_[1] ) if $mod eq '!';
     my $program = $_[0]{rule};
     $program = emit_rule( $program, $_[1].'        ' )
         if ref( $program );
-    return "$_[1] do{
+    return "$_[1] ## <before>
+$_[1] do{
 $_[1]     my \$pos1 = \$pos;
 $_[1]     do {
 $_[1]       my \$pos = \$pos1;
@@ -778,8 +829,10 @@ $_[1]       \$bool = 0 unless
 " .             $program . ";
 $_[1]       \$bool;
 $_[1]     };
-$_[1] }";
+$_[1] }
+$_[1] ## </before>\n";
 }
+
 sub after {
     my $mod = delete $_[0]{modifier};
     return negate( { after => $_[0] }, $_[1] ) if $mod eq '!';
@@ -787,7 +840,8 @@ sub after {
     my $program = $_[0]{rule};
     $program = emit_rule( $program, $_[1].'        ' )
         if ref( $program );
-    return "$_[1] do{
+    return "$_[1] ## <after>
+$_[1] do{
 $_[1]     my \$pos1 = \$pos;
 $_[1]     do {
 $_[1]       my \$pos = \$pos1 - 1;
@@ -798,8 +852,10 @@ $_[1]       \$bool = 0 unless
 " .             $program . ";
 $_[1]       \$bool;
 $_[1]     };
-$_[1] }";
+$_[1] }
+$_[1] ## </after>\n";
 }
+
 sub colon {
     my $str = $_[0];
     return "$_[1] 1 # : no-op\n"
@@ -890,7 +946,7 @@ $_[1] do {
                     1
                 }
                 else { 0 }
-            }\n
+            }
 $_[1] ## </metasyntax>\n";
     }
 
@@ -899,7 +955,7 @@ $_[1] ## </metasyntax>\n";
         my $name = substr( $cmd, 1 );
         # print "<$cmd>\n";
         # return variable( $cmd );
-        return "$_[1] do{
+        return "$_[1]## <metasyntax>\n$_[1] do{
                 my \$match = " . variable( $cmd, $_[1] ) . ";
                 if ( \$match ) {" .
                     ( $capture_to_array
@@ -910,7 +966,7 @@ $_[1] ## </metasyntax>\n";
                     1
                 }
                 else { 0 }
-            }";
+            }\n$_[1]## </metasyntax>\n";
     }
 
     if ( $prefix eq '$' ) {
@@ -919,12 +975,14 @@ $_[1] ## </metasyntax>\n";
             # ...->match( $rule, $str, $grammar, $flags, $state )
             # TODO - send $pos to subrule
             return
+                "$_[1]         ## <metasyntax>\n" .
                 "$_[1]         do {\n" .
                 "$_[1]           push \@match,\n" .
                 "$_[1]             $cmd->match( \$s, \$grammar, {p => \$pos}, undef );\n" .
                 "$_[1]           \$pos = \$match[-1]->to;\n" .
                 "$_[1]           !\$match[-1] != 1;\n" .
-                "$_[1]         }"
+                "$_[1]         }\n" .
+                "$_[1]         ## </metasyntax>\n";
         }
         # call method in lexical $var
         # TODO - send $pos to subrule
@@ -937,7 +995,7 @@ $_[1] ## </metasyntax>\n";
                 "$_[1]           \$pos = \$match[-1]->to;\n" .
                 "$_[1]           !\$match[-1] != 1;\n" .
                 "$_[1]         }\n" .
-                "$_[1]         ## <metasyntax>\n";
+                "$_[1]         ## </metasyntax>\n";
     }
     if ( $prefix eq q(') ) {   # single quoted literal '
         $cmd = substr( $cmd, 1, -1 );

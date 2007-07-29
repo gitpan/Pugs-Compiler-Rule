@@ -4,15 +4,20 @@ use Test::Base -Base;
 use t::lib::Util;
 
 #use Smart::Comments;
-use Pugs::Compiler::Regex;
-use Pugs::Compiler::Token;
+use Pugs::Grammar::Rule;
+use Pugs::Emitter::Rule::Perl5;
+use Pugs::Emitter::Rule::Perl5::Ratchet;
+use Pugs::Runtime::Regex;
 use Pugs::Grammar::Base;
+
+push @Pugs::Grammar::Rule::ISA, 'Pugs::Grammar::Base';
 
 our @EXPORT = qw( run_test run_tests );
 $Pugs::Compiler::Regex::NoCache = 1;
 
 my @updated_tests;
 my $count = 0;
+$::PCR_SEED = 0;
 
 sub extract_snippet ($$) {
     my ($perl5, $type) = @_;
@@ -31,13 +36,15 @@ sub run_test ($) {
     my $updated_test = {
         name => $block->name,
     };
-    my $rule;
+    my $perl5;
     if (defined $block->token) {
         $updated_test->{token} = $block->token;
         my $token = parse_str_list($block->token);
-        $rule = Pugs::Compiler::Token->compile($token);
+        ### $token
+        my $ast = Pugs::Grammar::Rule->rule($token)->();
+        ### $ast
+        $perl5 = Pugs::Emitter::Rule::Perl5::Ratchet::emit('Pugs::Grammar::Base', $ast);
     }
-    my $perl5 = $rule->{perl5};
     ### $perl5;
     my @node_types;
     my $nhits = 0;
@@ -49,15 +56,25 @@ sub run_test ($) {
             my $got = extract_snippet($perl5, $node_type);
             $updated_test->{$node_type} = $got;
             $got =~ s/\n+$//g;
-            $got =~ s/\$pad\{I\d+\}/\$pad{Ixxxx}/g;
+            #$got =~ s/\$pad\{I\d+\}/\$pad{Ixxxx}/g;
             $expected =~ s/\n+$//g;
-            $expected =~ s/\$pad\{I\d+\}/\$pad{Ixxxx}/g;
+            #$expected =~ s/\$pad\{I\d+\}/\$pad{Ixxxx}/g;
             is $got, $expected, "$t::BlockName - $node_type ok";
             $count++;
         }
     }
-    if ($nhits == 0) {
-        warn "$t::BlockName - no node type matched. perl5 source only contains the following node types: ", join(', ', @node_types), "\n";
+    if ($nhits == 0 && @node_types > 0) {
+        ok 0, "$t::BlockName - no node type matched. perl5 source only contains the following node types: ".join(', ', @node_types)."\n";
+    }
+    if (defined $block->Layout) {
+        my $layout;
+        while ($perl5 =~ m{^( *)## (</?\w+>\n)}mg) {
+            $layout .= $1 . $2;
+        }
+        $layout =~ s{<(\w+)>\s*</\1>}{<$1 />}gs;
+        is $layout, $block->Layout, "$t::BlockName - layout ok";
+        $updated_test->{Layout} = $layout;
+        $count++;
     }
     push @updated_tests, $updated_test;
 }
@@ -69,6 +86,7 @@ sub run_tests () {
 }
 
 END {
+    return if $0 =~ /t_$/;
     (my $script = $0) =~ s{.*[/\\]}{}g;
     $script = "t/emitter/${script}_";
     open my $out, "> $script" or
