@@ -4,17 +4,24 @@ use lib 'lib';
 use File::Slurp 'slurp';
 use Getopt::Std;
 use Pugs::Compiler::Grammar;
+use Pugs::Runtime::Tracer;
 
 my %opts;
-getopts("s:", \%opts) or help();
+getopts("TDs:", \%opts) or help();
+my $safe_mode = 0;
+if ($opts{T}) {
+    $safe_mode = 1;
+}
 if (defined $opts{s}) {
     $::PCR_SEED = $opts{s};
 }
 
 my $infile = shift or help();
 my $grammar = slurp($infile);
-my $compiler = Pugs::Compiler::Grammar->compile($grammar) or
-    die;
+my $compiler = Pugs::Compiler::Grammar->compile(
+    $grammar,
+    { safe_mode => $safe_mode }
+) or die;
 if ($compiler) {
     my $perl5 = $compiler->perl5;
     my $localtime = localtime;
@@ -27,11 +34,22 @@ use strict;
 use warnings;
 
 EOC
+    if ($opts{D}) {
+        #print "use Pugs::Runtime::Tracer;\n";
+        $perl5 = expand_tracing_code($perl5);
+    }
     print $perl5;
 }
 
 sub help {
-    die "Usage: $0 [-s seed] foo.grammar > Foo.pm\n";
+    die <<"_EOC_";
+Usage: $0 [-s seed] [-D] [-T] foo.grammar > Foo.pm
+Options:
+    -D      Specify the safe mode in which no action blocks are allowed
+            in the grammar spec.
+    -T      Specify the tracing mode in which the parser generated will
+            emit tracing info to stdout.
+_EOC_
 }
 
 __END__
@@ -51,6 +69,13 @@ compile_p6grammar.pl - Compile Perl 6 Grammars to Perl 5 Modules
           (\d+) <?ws>? '+' <?ws>? (\d+) { return $/[0] + $/[1] }
       }
     $
+
+=head1 OPTIONS
+
+    -D      Specify the safe mode in which no action blocks are allowed
+            in the grammar spec.
+    -T      Specify the tracing mode in which the parser generated will
+            emit tracing info to stdout.
 
 =head1 DESCRIPTION
 
@@ -74,6 +99,9 @@ under the same terms as Perl itself.
 See L<http://www.perl.com/perl/misc/Artistic.html>
 
 =head1 SEE ALSO
+
+"A graphical tracer for Perl 6 regexes based on PCR"
+L<http://pugs.blogs.com/pugs/2007/10/a-graphical-tra.html>.
 
 L<Pugs::Compiler::Grammar>, L<Pugs::Compiler::Rule>,
 L<Pugs::Compiler::Regex>,

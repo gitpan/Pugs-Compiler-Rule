@@ -4,14 +4,15 @@ use warnings;
 
 package Pugs::Compiler::Grammar;
 
-our $VERSION = '0.26';
+our $VERSION = '0.27';
 
 use Pugs::Grammar::Rule;
 use Pugs::Emitter::Grammar::Perl5;
 use Carp qw(carp croak);
 
 sub compile {
-    my ($class, $src) = @_;
+    my ($class, $src, $opts) = @_;
+    $opts ||= {};
     my $match = Pugs::Grammar::Rule->spec($src);
     if ($match->bool) {
         ## $match
@@ -26,7 +27,7 @@ sub compile {
             $g = $g->();
             my ($name) = keys %$g;
             ### Grammar: $name
-            $perl5 .= Pugs::Emitter::Grammar::Perl5::emit($g);
+            $perl5 .= Pugs::Emitter::Grammar::Perl5::emit($g, $opts);
         }
         bless {
             source => $src,

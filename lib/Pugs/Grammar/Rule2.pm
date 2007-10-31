@@ -1,3 +1,6 @@
+# WARNING: This file is no longer used by PCR itself;
+# we're using examples/Grammar.grammar to generate Pugs::Grammar::Rule.pmc
+# instead.
 
 use v6-alpha;
 use utf8;
@@ -37,24 +40,24 @@ our %variables;
 
 token pod_begin {
     |   \n =end \N*
-    |   . \N* <?pod_begin>
+    |   . \N* <.pod_begin>
 }
 
 token pod_other {
     |   \n =cut \N*
-    |   . \N* <?pod_other>
+    |   . \N* <.pod_other>
 }
 
 token ws {
     [
     |    \# \N*
     |    \n [ = [
-            |  begin <?ws> END \N* .*
-            |  begin  <?pod_begin>
-            |  kwid   <?pod_other>
-            |  pod    <?pod_other>
-            |  for    <?pod_other>
-            |  head1  <?pod_other>
+            |  begin <.ws> END \N* .*
+            |  begin  <.pod_begin>
+            |  kwid   <.pod_other>
+            |  pod    <.pod_other>
+            |  for    <.pod_other>
+            |  head1  <.pod_other>
             ]?
             ]?
     |    \s
@@ -63,7 +66,7 @@ token ws {
 
 # regex ident can start with a number
 token ident {
-    [ <?alnum> | _ | '::' ]+
+    [ <.alnum> | _ | '::' ]+
 }
 
 token alnum {
@@ -121,10 +124,10 @@ token double_quoted {
 token metasyntax {
     [
     |  \\ <special_char>
-    |  \'  <?literal>     \'
-    |  \"  <?double_quoted>   \"
-    |  \{  <?string_code>        \}
-    |  \<  <?metasyntax>  \>
+    |  \'  <.literal>     \'
+    |  \"  <.double_quoted>   \"
+    |  \{  <.string_code>        \}
+    |  \<  <.metasyntax>  \>
     |  <-[ \> ]>
     ]+
 }
@@ -137,28 +140,28 @@ token char_range {
 }
 
 token char_class {
-    |  <?alpha>+
-    |  \[  <?char_range>  \]
+    |  <.alpha>+
+    |  \[  <.char_range>  \]
 }
 
 token string_code {
     # bootstrap "code"
     [
     |  \\ <special_char>
-    |  \'  <?literal>     \'
-    |  \"  <?double_quoted>   \"
-    |  \{  [ <?string_code> | '' ]  \}
-    |  \(  [ <?string_code> | '' ]  \)
-    |  \<  [ <?string_code> | '' ]  \>
-    |  [ <?ws> | \> | \= | \- ] \>
-    |  <?ws>
+    |  \'  <.literal>     \'
+    |  \"  <.double_quoted>   \"
+    |  \{  [ <.string_code> | '' ]  \}
+    |  \(  [ <.string_code> | '' ]  \)
+    |  \<  [ <.string_code> | '' ]  \>
+    |  [ <.ws> | \> | \= | \- ] \>
+    |  <.ws>
     |  <-[ \} \) \> ]>
     ]+
 }
 
 token parsed_code {
     # this subrule is overridden inside the perl6 compiler
-    <?string_code>
+    <.string_code>
     { return '{' ~ $/ ~ '}' }
 }
 
@@ -166,13 +169,13 @@ token named_capture_body {
     | \(  <rule>        \)  { return { capturing_group => $$<rule> ,} }
     | \[  <rule>        \]  { return $$<rule> }
     | \<  <parse_metasyntax>  { return $$<parse_metasyntax> }
-    | \'  <?literal>    \'
+    | \'  <.literal>    \'
         { return { metasyntax => { metasyntax => ~ $$/ ,} } }
     | { die "invalid alias syntax"; }
 }
 
 token parse_metasyntax {
-        $<modifier> := [ '!' | '?' | '' ]
+        $<modifier> := [ '!' | '?' | '.' | '' ]
     [
         '{'  <parsed_code>  '}>'
         { return { closure => {
@@ -201,7 +204,7 @@ token parse_metasyntax {
     |
         <ident>
         [
-          <?ws> <rule> \>
+          <.ws> <rule> \>
           {
             if  ( $$<ident> eq 'before'
                || $$<ident> eq 'after'
@@ -215,7 +218,7 @@ token parse_metasyntax {
             } }
           }
         |
-          ':' <?ws>?
+          ':' <.ws>?
           $<str> := [
             [
             |  \\ <special_char>
@@ -266,27 +269,27 @@ token parse_metasyntax {
         { return { match_variable => '$' ~ $/<ident> ,} }
     },
     '$' => token {
-        <?digit>+
+        <.digit>+
         { return { match_variable => '$' ~ $/ ,} }
     |
         \^?
-        [ <?alnum> | _ | \: \: ]+
+        [ <.alnum> | _ | \: \: ]+
         { return { variable => '$' ~ $/ ,} }
     },
     '@' => token {
-        <?digit>+
+        <.digit>+
         { return { match_variable => '@' ~ $/ ,} }
     |
         \^?
-        [ <?alnum> | _ | \: \: ]+
+        [ <.alnum> | _ | \: \: ]+
         { return { variable => '@' ~ $/ ,} }
     },
     '%' => token {
-        <?digit>+
+        <.digit>+
         { return { match_variable => '%' ~ $/ ,} }
     |
         \^?
-        [ <?alnum> | _ | \: \: ]+
+        [ <.alnum> | _ | \: \: ]+
         { return { variable => '%' ~ $/ ,} }
     },
 
@@ -301,7 +304,7 @@ token parse_metasyntax {
     },
 
     '\'' => token {
-        <?literal>     \'
+        <.literal>     \'
         { return { metasyntax => { metasyntax => '\'' ~ $$/ ,} } }
     },
     '(' => token {
@@ -384,41 +387,41 @@ token parse_metasyntax {
     '«'   => token { { return { colon => '<<' ,} } },
 
     ':i'  => token {
-        <?ws> <rule>
+        <.ws> <rule>
         { return { modifier => { modifier => 'ignorecase', :$$<rule>, } } } },
     ':ignorecase'  => token {
-        <?ws> <rule>
+        <.ws> <rule>
         { return { modifier => { modifier => 'ignorecase', :$$<rule>, } } } },
     ':s'  => token {
-        <?ws> <rule>
+        <.ws> <rule>
         { return { modifier => 'sigspace',   :$$<rule>, } } },
     ':sigspace'    => token {
-        <?ws> <rule>
+        <.ws> <rule>
         { return { modifier => 'sigspace',   :$$<rule>, } } },
     ':P5' => token {
-        <?ws> <rule>
+        <.ws> <rule>
         { return { modifier => 'Perl5',  :$$<rule>, } } },
     ':Perl5'       => token {
-        <?ws> <rule>
+        <.ws> <rule>
         { return { modifier => 'Perl5',  :$$<rule>, } } },
     ':bytes'       => token {
-        <?ws> <rule>
+        <.ws> <rule>
         { return { modifier => 'bytes',  :$$<rule>, } } },
     ':codes'       => token {
-        <?ws> <rule>
+        <.ws> <rule>
         { return { modifier => 'codes',  :$$<rule>, } } },
     ':graphs'      => token {
-        <?ws> <rule>
+        <.ws> <rule>
         { return { modifier => 'graphs', :$$<rule>, } } },
     ':langs'       => token {
-        <?ws> <rule>
+        <.ws> <rule>
         { return { modifier => 'langs',  :$$<rule>, } } },
 
 ); # /%rule_terms
 
 token term {
     |  <%Pugs::Grammar::Rule::variables>
-       [  <?ws>? ':=' <?ws>? <named_capture_body>
+       [  <.ws>? ':=' <.ws>? <named_capture_body>
           {
             return { named_capture => {
                 rule =>  $$<named_capture_body>,
@@ -443,19 +446,19 @@ token term {
 }
 
 token quant {
-    |   '**' <?ws>? \{  <parsed_code>  \}
+    |   '**' <.ws>? \{  <parsed_code>  \}
         { return { closure => $$<parsed_code> ,} }
     |   <[  \? \* \+  ]>?
 }
 
 token quantifier {
-    $<ws1>   := (<?ws>?)
+    $<ws1>   := (<.ws>?)
     <!before  <[   \} \] \)   ]> >
     <term>
-    $<ws2>   := (<?ws>?)
+    $<ws2>   := (<.ws>?)
     <quant>
     $<greedy> := (<[  \? \+  ]>?)
-    $<ws3>   := (<?ws>?)
+    $<ws3>   := (<.ws>?)
     {
       if
                $$/{'quant'}   eq ''
@@ -490,7 +493,7 @@ token concat {
 }
 
 token conjunctive1 {
-    [ <?ws>? \& <!before \& > ]?
+    [ <.ws>? \& <!before \& > ]?
 
     <concat>**{1}
     [
@@ -507,7 +510,7 @@ token conjunctive1 {
 }
 
 token disjunctive1 {
-    [ <?ws>? \| <!before \| > ]?
+    [ <.ws>? \| <!before \| > ]?
 
     <conjunctive1>**{1}
     [
@@ -524,7 +527,7 @@ token disjunctive1 {
 }
 
 token conjunctive {
-    [ <?ws>? \& \& ]?
+    [ <.ws>? \& \& ]?
 
     <disjunctive1>**{1}
     [
@@ -541,7 +544,7 @@ token conjunctive {
 }
 
 token rule {
-    [ <?ws>? \| \| ]?
+    [ <.ws>? \| \| ]?
 
     <conjunctive>**{1}
     [
@@ -559,8 +562,8 @@ token rule {
 
 token named_regex {
     ( 'token' | 'regex' | 'rule' )
-    <?ws> <ident> <?ws>? '{'
-        <?ws>?
+    <.ws> <ident> <.ws>? '{'
+        <.ws>?
         <rule>
     '}' ';'?
 
@@ -588,9 +591,9 @@ token item {
 }
 
 token grammar {
-    <?ws>? 'grammar' <?ws> <ident> <?ws>? ';'
-    <?ws>?
-    [ <item> <?ws>? ]*
+    <.ws>? 'grammar' <.ws> <ident> <.ws>? ';'
+    <.ws>?
+    [ <item> <.ws>? ]*
     { return { $$<ident> => $<item> } }
 }
 

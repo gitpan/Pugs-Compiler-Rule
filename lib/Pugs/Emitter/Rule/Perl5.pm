@@ -557,7 +557,16 @@ sub metasyntax {
         warn "<\"...\"> not implemented";
         return;
     }
+    if ( $prefix eq '.' ) {   # non_capturing_subrule / code assertion
+        $cmd = substr( $cmd, 1 );
+        if ( $cmd =~ /^{/ ) {
+            warn "code assertion not implemented";
+            return;
+        }
+        return call_subrule_no_capture( $cmd, $_[1], '' );
+    }
     if ( $prefix eq '?' ) {   # non_capturing_subrule / code assertion
+        # XXX FIXME
         $cmd = substr( $cmd, 1 );
         if ( $cmd =~ /^{/ ) {
             warn "code assertion not implemented";
@@ -589,12 +598,12 @@ sub metasyntax {
             call_subrule( $name, $_[1]."  ", "", @param ) .
             "$_[1] )\n";
     }
-    if ( $prefix eq '.' ) {
-        my ( $method, $param_list ) = split( /[\(\)]/, $cmd );
-        $method =~ s/^\.//;
-        $param_list ||= '';
-        return "$_[1] try_method( '$method', '$param_list' ) ";
-    }
+    #if ( $prefix eq '.' ) {
+    #    my ( $method, $param_list ) = split( /[\(\)]/, $cmd );
+    #    $method =~ s/^\.//;
+    #    $param_list ||= '';
+    #    return "$_[1] try_method( '$method', '$param_list' ) ";
+    #}
     die "<$cmd> not implemented";
 }
 
