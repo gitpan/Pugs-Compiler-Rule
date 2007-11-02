@@ -91,7 +91,7 @@ The Perl 6 Rules Spec: L<http://dev.perl.org/perl6/doc/design/syn/S05.html>
 
 =head1 COPYRIGHT
 
-Copyright 2006, 2007 by Nathan Gray and Agent Zhang.
+Copyright 2006, 2007 by Nathan Gray and Agent Zhang (E<lt>agentzh@yahoo.cnE<gt>).
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
