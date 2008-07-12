@@ -1,5 +1,4 @@
 #line 1
-#line 1
 package Spiffy;
 use strict;
 use 5.006001;

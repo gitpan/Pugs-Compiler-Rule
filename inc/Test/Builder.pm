@@ -1,5 +1,4 @@
 #line 1
-#line 1
 package Test::Builder;
 
 use 5.004;
